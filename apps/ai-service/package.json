@@ -1,0 +1,7 @@
+{
+    "name": "ai-service",
+    "version": "0.1.0",
+    "scripts": {
+        "dev": "python -u server.py"
+    }
+}

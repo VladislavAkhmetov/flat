@@ -1,0 +1,15 @@
+torch
+torchvision --index-url https://download.pytorch.org/whl/cu118
+fastapi
+uvicorn[standard]
+python-multipart
+opencv-python-headless
+numpy
+pillow
+gdown
+segmentation-models-pytorch
+shapely
+scikit-image
+scikit-learn
+tqdm
+ultralytics
