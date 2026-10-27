@@ -1,5 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
 torch
-torchvision --index-url https://download.pytorch.org/whl/cu118
+torchvision
 fastapi
 uvicorn[standard]
 python-multipart
@@ -8,8 +9,11 @@ numpy
 pillow
 gdown
 segmentation-models-pytorch
-shapely
 scikit-image
 scikit-learn
 tqdm
 ultralytics
+transformers>=4.40
+accelerate
+safetensors
+easyocr

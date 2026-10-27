@@ -40,7 +40,11 @@ export interface WallEdge {
   kind: WallKind;
 }
 
-export type OpeningKind = 'door' | 'window';
+export type OpeningKind = 'door' | 'window' | 'balcony_door';
+
+export type DoorHingeSide = 'left' | 'right';
+/** Which side of the wall the door leaf swings into (local ±Z of the wall). */
+export type DoorSwingSide = 'in' | 'out';
 
 export interface Opening {
   id: string;
@@ -50,6 +54,10 @@ export interface Opening {
   width: number;
   height: number;
   sillHeight: number;
+  /** Door / balcony: hinge along the opening (left = toward wall start). */
+  hingeSide?: DoorHingeSide;
+  /** Door / balcony: swing into room ('in') or the opposite side ('out'). */
+  swingSide?: DoorSwingSide;
 }
 
 export interface FurnitureObject {
@@ -63,6 +71,7 @@ export interface FurnitureObject {
 
 export interface MaterialMap {
   floorId?: string;
+  wallColor?: string;
   wallIds: Record<string, string>; // wallId -> materialId
 }
 
@@ -88,4 +97,81 @@ export interface LeadPayload {
   comment?: string;
   sceneId: string;
   shareToken: string;
+  brand?: string;
+  sourceUrl?: string;
+  webhookUrl?: string;
 }
+
+export interface WhitelabelFeatures {
+  atmosphere?: boolean;
+  passport?: boolean;
+  materials?: boolean;
+  aiRender?: boolean;
+  furniture?: boolean;
+  apartmentPicker?: boolean;
+  bake?: boolean;
+  share?: boolean;
+}
+
+export interface WhitelabelConfig {
+  brandName?: string;
+  brandSubtitle?: string;
+  brandLogo?: string;
+  primaryColor?: string; // hex, e.g. #f59e0b, #10b981, #2563eb
+  theme?: 'dark' | 'light';
+  hideBranding?: boolean;
+  contactPhone?: string;
+  ctaText?: string;
+  webhookUrl?: string;
+  features?: WhitelabelFeatures;
+}
+
+export type FlatPostMessageEventType =
+  | 'flat:ready'
+  | 'flat:lead_submitted'
+  | 'flat:apartment_changed'
+  | 'flat:mode_changed'
+  | 'flat:passport_downloaded';
+
+export interface FlatPostMessageEvent {
+  type: FlatPostMessageEventType;
+  payload?: any;
+}
+
+export type FlatPostMessageCommandType =
+  | 'flat:set_apartment'
+  | 'flat:set_theme'
+  | 'flat:set_color'
+  | 'flat:set_atmosphere'
+  | 'flat:open_lead_modal';
+
+export interface FlatPostMessageCommand {
+  type: FlatPostMessageCommandType;
+  payload?: any;
+}
+
+export interface PanoramaHotspot {
+  targetRoomId: string;
+  targetRoomName: string;
+  yaw: number;
+  pitch: number;
+  distance: number;
+}
+
+export interface PanoramaData {
+  id: string;
+  name: string;
+  file: string;
+  url?: string;
+  position: [number, number, number];
+  hotspots: PanoramaHotspot[];
+}
+
+export interface BakeStatusResponse {
+  status: 'none' | 'processing' | 'ready' | 'error';
+  progress: number;
+  bakedGlbUrl?: string | null;
+  panoramas?: PanoramaData[] | null;
+  error?: string | null;
+}
+

@@ -15,9 +15,9 @@ export default defineConfig({
     },
     server: {
         host: '0.0.0.0',
-        port: 5173,
+        port: Number(process.env.FLAT_WIDGET_PORT || 5180),
         proxy: {
-            '/api': 'http://127.0.0.1:3000'
+            '/api': process.env.FLAT_API_ORIGIN || 'http://127.0.0.1:3000'
         }
     }
 })

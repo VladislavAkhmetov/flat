@@ -1,251 +1,289 @@
 import { SceneData, WallNode, WallEdge, Opening, FurnitureObject } from '@flat/shared';
 
-// Base structural nodes common to the apartment shell (10m x 8m)
-const baseNodes: WallNode[] = [
-    { id: 'node_1', x: -5, y: -4 },
-    { id: 'node_2', x: 5, y: -4 },
-    { id: 'node_3', x: 5, y: 4 },
-    { id: 'node_4', x: -5, y: 4 },
-    { id: 'node_5', x: 1, y: -4 },
-    { id: 'node_6', x: 1, y: 4 },
-    { id: 'node_7', x: 1, y: 0.5 },
-    { id: 'node_8', x: 5, y: 0.5 },
-    { id: 'node_9', x: 1, y: -2 },
-    { id: 'node_10', x: 5, y: -2 }
+export interface PresetMetadata {
+    id: string;
+    title: string;
+    roomsLabel: string;
+    area: string;
+    floor: string;
+    ceiling: string;
+    price: string;
+    desc: string;
+    features: string[];
+}
+
+export const PRESET_METADATA_LIST: PresetMetadata[] = [
+    {
+        id: 'studio',
+        title: 'Студия Smart',
+        roomsLabel: 'Студия',
+        area: '32.5 м²',
+        floor: '8 / 24',
+        ceiling: '3.0 м',
+        price: '12 800 000 ₽',
+        desc: 'Эргономичная студия с умным зонированием. Выделенная спальная зона, встроенная кухня и просторный санузел.',
+        features: ['Встроенная гардеробная', 'Душевая Walk-in', 'Барная стойка', 'Панорамное окно']
+    },
+    {
+        id: 'euro2',
+        title: 'Евро-2 Комфорт',
+        roomsLabel: '2-комн. евро',
+        area: '54.2 м²',
+        floor: '12 / 24',
+        ceiling: '3.0 м',
+        price: '16 400 000 ₽',
+        desc: 'Евро-двушка с большой кухней-гостиной (22 м²), изолированной мастер-спальней и панорамной лоджией.',
+        features: ['Кухня-гостиная 22 м²', 'Мастер-спальня', 'Панорамная лоджия', 'Ванная комната']
+    },
+    {
+        id: 'family',
+        title: 'Семейная Евро-3',
+        roomsLabel: '3-комн. евро',
+        area: '78.4 м²',
+        floor: '16 / 24',
+        ceiling: '3.0 м',
+        price: '18 200 000 ₽',
+        desc: 'Идеальное пространство для семьи: мастер-спальня, детская комната, просторная гостиная и 2 санузла.',
+        features: ['Выделенная детская', '2 санузла', 'Большие системы хранения', 'Обеденная зона на 6 персон']
+    },
+    {
+        id: 'penthouse',
+        title: 'Пентхаус Premium',
+        roomsLabel: '4-комн. пентхаус',
+        area: '112.0 м²',
+        floor: '24 / 24',
+        ceiling: '3.3 м',
+        price: '27 500 000 ₽',
+        desc: 'Флагманская резиденция на верхнем этаже с круговой панорамой, островной кухней и мастер-сьютом.',
+        features: ['Островная кухня', 'Мастер-сьют с ванной', 'Кабинет / Лаунж', 'Потолки 3.3 м']
+    }
 ];
 
-// Outer walls (bearing) and standard inner walls (partitions)
-const baseEdges: WallEdge[] = [
-    // Outer walls - Bearing (25cm thick)
-    { id: 'edge_1_2', startNodeId: 'node_1', endNodeId: 'node_2', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_2_3', startNodeId: 'node_2', endNodeId: 'node_3', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_3_4', startNodeId: 'node_3', endNodeId: 'node_4', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_4_1', startNodeId: 'node_4', endNodeId: 'node_1', thickness: 0.25, height: 2.7, kind: 'bearing' },
-
-    // Inner partitions - Non-bearing (15cm thick)
-    { id: 'edge_5_9', startNodeId: 'node_5', endNodeId: 'node_9', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_9_7', startNodeId: 'node_9', endNodeId: 'node_7', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_7_6', startNodeId: 'node_7', endNodeId: 'node_6', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_7_8', startNodeId: 'node_7', endNodeId: 'node_8', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_9_10', startNodeId: 'node_9', endNodeId: 'node_10', thickness: 0.15, height: 2.7, kind: 'partition' }
+// ==========================================
+// 1. Studio Smart Preset (32.5 m²: 6.5m x 5m)
+// ==========================================
+const studioNodes: WallNode[] = [
+    { id: 's_n1', x: -3.25, y: -2.5 },
+    { id: 's_n2', x: 3.25, y: -2.5 },
+    { id: 's_n3', x: 3.25, y: 2.5 },
+    { id: 's_n4', x: -3.25, y: 2.5 },
+    // Bathroom inner partition
+    { id: 's_n5', x: 1.0, y: -2.5 },
+    { id: 's_n6', x: 1.0, y: -0.3 },
+    { id: 's_n7', x: 3.25, y: -0.3 }
 ];
 
-// Standard windows and doors
-const baseOpenings = (edges: WallEdge[]): Opening[] => [
-    // Entrance Door on wall 1-2 (t = 0.75)
-    { id: 'opening_entrance', wallId: 'edge_1_2', kind: 'door', t: 0.75, width: 0.9, height: 2.1, sillHeight: 0 },
-    // Bedroom Door on wall 7-6 (t = 0.2)
-    { id: 'opening_bedroom_door', wallId: 'edge_7_6', kind: 'door', t: 0.2, width: 0.8, height: 2.0, sillHeight: 0 },
-    // Bathroom Door on wall 9-10 (t = 0.3)
-    { id: 'opening_bathroom_door', wallId: 'edge_9_10', kind: 'door', t: 0.3, width: 0.8, height: 2.0, sillHeight: 0 },
-    // Panoramic Window in Living Room on wall 4-1 (t = 0.5)
-    { id: 'opening_pano_window', wallId: 'edge_4_1', kind: 'window', t: 0.5, width: 3.0, height: 2.4, sillHeight: 0.15 },
-    // Standard Window in Bedroom on wall 2-3 (t = 0.7)
-    { id: 'opening_bedroom_window', wallId: 'edge_2_3', kind: 'window', t: 0.7, width: 1.5, height: 1.5, sillHeight: 0.9 }
+const studioEdges: WallEdge[] = [
+    // Outer walls (bearing 25cm)
+    { id: 's_e1_2', startNodeId: 's_n1', endNodeId: 's_n2', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 's_e2_3', startNodeId: 's_n2', endNodeId: 's_n3', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 's_e3_4', startNodeId: 's_n3', endNodeId: 's_n4', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 's_e4_1', startNodeId: 's_n4', endNodeId: 's_n1', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    // Bathroom partitions (15cm)
+    { id: 's_e5_6', startNodeId: 's_n5', endNodeId: 's_n6', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 's_e6_7', startNodeId: 's_n6', endNodeId: 's_n7', thickness: 0.15, height: 2.7, kind: 'partition' }
 ];
 
-// --- 1. Scandinavian Comfort Preset ---
-const scandiFurniture: FurnitureObject[] = [
-    { id: 'spawn_point', catalogId: 'spawn_point', pos: { x: 3.5, y: 0, z: -3.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    // Living Room (Left side)
-    { id: 'scandi_sofa', catalogId: 'sofa_corner', pos: { x: -3.2, y: 0, z: -1.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_tv_stand', catalogId: 'tv_stand', pos: { x: -0.2, y: 0, z: -1.5 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_tv', catalogId: 'tv', pos: { x: -0.2, y: 0.6, z: -1.5 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_dining_table', catalogId: 'table_dining', pos: { x: -2.0, y: 0, z: 2.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_chair_1', catalogId: 'chair_dining', pos: { x: -2.0, y: 0, z: 2.5 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_chair_2', catalogId: 'chair_dining', pos: { x: -2.0, y: 0, z: 1.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_kitchen', catalogId: 'kitchen_set', pos: { x: -3.8, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_fridge', catalogId: 'refrigerator', pos: { x: -4.7, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    
-    // Bedroom (Top Right)
-    { id: 'scandi_bed', catalogId: 'bed_double', pos: { x: 3.5, y: 0, z: 2.5 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_bedside_l', catalogId: 'bedside_table', pos: { x: 2.4, y: 0, z: 3.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_bedside_r', catalogId: 'bedside_table', pos: { x: 4.6, y: 0, z: 3.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_wardrobe', catalogId: 'wardrobe', pos: { x: 1.8, y: 0, z: 1.2 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-
-    // Bathroom (Middle Right)
-    { id: 'scandi_bath', catalogId: 'bath', pos: { x: 3.2, y: 0, z: -0.8 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_toilet', catalogId: 'toilet', pos: { x: 4.5, y: 0, z: -1.6 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'scandi_sink', catalogId: 'sink', pos: { x: 1.5, y: 0, z: -1.2 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-
-    // Hallway (Bottom Right)
-    { id: 'scandi_hall_wardrobe', catalogId: 'wardrobe', pos: { x: 4.2, y: 0, z: -3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } }
+const studioOpenings: Opening[] = [
+    { id: 's_op_door_in', wallId: 's_e1_2', kind: 'door', t: 0.25, width: 0.9, height: 2.1, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 's_op_door_bath', wallId: 's_e6_7', kind: 'door', t: 0.35, width: 0.8, height: 2.0, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 's_op_win_main', wallId: 's_e3_4', kind: 'window', t: 0.5, width: 2.8, height: 2.2, sillHeight: 0.2 }
 ];
 
-export const scandiPreset: SceneData = {
+const studioFurniture: FurnitureObject[] = [
+    { id: 'spawn_point', catalogId: 'spawn_point', pos: { x: -1.5, y: 0, z: -1.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Hallway
+    { id: 's_hall_w', catalogId: 'wardrobe', pos: { x: -2.4, y: 0, z: -2.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Kitchen zone
+    { id: 's_kit', catalogId: 'kitchen_set', pos: { x: -2.3, y: 0, z: 2.0 }, rot: 0, scale: { x: 0.9, y: 1, z: 1 } },
+    { id: 's_fridge', catalogId: 'refrigerator', pos: { x: -3.0, y: 0, z: 2.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Dining / Bar table
+    { id: 's_table', catalogId: 'table_dining', pos: { x: -0.9, y: 0, z: 1.6 }, rot: Math.PI / 2, scale: { x: 0.8, y: 1, z: 0.8 } },
+    { id: 's_chair1', catalogId: 'chair_dining', pos: { x: -0.9, y: 0, z: 2.2 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
+    { id: 's_chair2', catalogId: 'chair_dining', pos: { x: -0.9, y: 0, z: 1.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Living / Sleeping zone
+    { id: 's_sofa', catalogId: 'sofa_2', pos: { x: 0.5, y: 0, z: 1.6 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
+    { id: 's_bed', catalogId: 'bed_double', pos: { x: 2.2, y: 0, z: 1.4 }, rot: Math.PI, scale: { x: 0.9, y: 1, z: 0.9 } },
+    { id: 's_tv_stand', catalogId: 'tv_stand', pos: { x: -0.2, y: 0, z: 0.1 }, rot: 0, scale: { x: 0.9, y: 1, z: 1 } },
+    { id: 's_tv', catalogId: 'tv', pos: { x: -0.2, y: 0.6, z: 0.1 }, rot: 0, scale: { x: 0.9, y: 1, z: 1 } },
+    // Bathroom
+    { id: 's_shower', catalogId: 'shower', pos: { x: 2.6, y: 0, z: -2.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 's_toilet', catalogId: 'toilet', pos: { x: 1.6, y: 0, z: -2.0 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 's_sink', catalogId: 'sink', pos: { x: 2.6, y: 0, z: -1.0 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } }
+];
+
+export const studioPreset: SceneData = {
     schemaVersion: '1.0',
     walls: [],
-    nodes: baseNodes,
-    edges: baseEdges,
-    openings: baseOpenings(baseEdges),
-    objects: scandiFurniture,
+    nodes: studioNodes,
+    edges: studioEdges,
+    openings: studioOpenings,
+    objects: studioFurniture,
+    materials: {
+        floorId: 'wood_chevron',
+        wallColor: '#faf9f6',
+        wallIds: {}
+    },
+    camera: {
+        mode: '3d',
+        position: { x: 0, y: 9, z: 9 },
+        target: { x: 0, y: 0, z: 0 }
+    }
+};
+
+// ==========================================
+// 2. Euro-2 Comfort Preset (54.2 m²: 8m x 7m)
+// ==========================================
+const euro2Nodes: WallNode[] = [
+    { id: 'e2_n1', x: -4.0, y: -3.5 },
+    { id: 'e2_n2', x: 4.0, y: -3.5 },
+    { id: 'e2_n3', x: 4.0, y: 3.5 },
+    { id: 'e2_n4', x: -4.0, y: 3.5 },
+    // Partition dividing Kitchen-Living (left) and Bedroom/Bathroom (right)
+    { id: 'e2_n5', x: 0.5, y: -3.5 },
+    { id: 'e2_n6', x: 0.5, y: 3.5 },
+    // Bathroom horizontal wall
+    { id: 'e2_n7', x: 0.5, y: -0.5 },
+    { id: 'e2_n8', x: 4.0, y: -0.5 }
+];
+
+const euro2Edges: WallEdge[] = [
+    // Outer walls
+    { id: 'e2_e1_2', startNodeId: 'e2_n1', endNodeId: 'e2_n2', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 'e2_e2_3', startNodeId: 'e2_n2', endNodeId: 'e2_n3', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 'e2_e3_4', startNodeId: 'e2_n3', endNodeId: 'e2_n4', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 'e2_e4_1', startNodeId: 'e2_n4', endNodeId: 'e2_n1', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    // Partitions
+    { id: 'e2_e5_7', startNodeId: 'e2_n5', endNodeId: 'e2_n7', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'e2_e7_6', startNodeId: 'e2_n7', endNodeId: 'e2_n6', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'e2_e7_8', startNodeId: 'e2_n7', endNodeId: 'e2_n8', thickness: 0.15, height: 2.7, kind: 'partition' }
+];
+
+const euro2Openings: Opening[] = [
+    { id: 'e2_op_door_in', wallId: 'e2_e1_2', kind: 'door', t: 0.3, width: 0.9, height: 2.1, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'e2_op_door_bed', wallId: 'e2_e7_6', kind: 'door', t: 0.3, width: 0.8, height: 2.0, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'e2_op_door_bath', wallId: 'e2_e7_8', kind: 'door', t: 0.35, width: 0.8, height: 2.0, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    // Panoramic living room window & bedroom window
+    { id: 'e2_op_win_living', wallId: 'e2_e3_4', kind: 'window', t: 0.65, width: 2.6, height: 2.4, sillHeight: 0.1 },
+    { id: 'e2_op_win_bed', wallId: 'e2_e3_4', kind: 'window', t: 0.2, width: 1.6, height: 1.5, sillHeight: 0.9 }
+];
+
+const euro2Furniture: FurnitureObject[] = [
+    { id: 'spawn_point', catalogId: 'spawn_point', pos: { x: -2.0, y: 0, z: -2.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Entrance Wardrobe
+    { id: 'e2_hall_w', catalogId: 'wardrobe', pos: { x: -3.2, y: 0, z: -3.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Kitchen Area (Left Top)
+    { id: 'e2_kit', catalogId: 'kitchen_set', pos: { x: -3.0, y: 0, z: 2.9 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_fridge', catalogId: 'refrigerator', pos: { x: -3.7, y: 0, z: 2.9 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Dining Table (Center Left)
+    { id: 'e2_dining', catalogId: 'table_dining', pos: { x: -1.6, y: 0, z: 1.6 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_ch1', catalogId: 'chair_dining', pos: { x: -1.6, y: 0, z: 2.1 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_ch2', catalogId: 'chair_dining', pos: { x: -1.6, y: 0, z: 1.1 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Living Lounge (Left Bottom)
+    { id: 'e2_sofa', catalogId: 'sofa_corner', pos: { x: -2.6, y: 0, z: -0.6 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_tv_stand', catalogId: 'tv_stand', pos: { x: -0.1, y: 0, z: -0.6 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_tv', catalogId: 'tv', pos: { x: -0.1, y: 0.6, z: -0.6 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    // Bedroom (Right Top)
+    { id: 'e2_bed', catalogId: 'bed_double', pos: { x: 2.4, y: 0, z: 2.1 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_bedside_l', catalogId: 'bedside_table', pos: { x: 1.4, y: 0, z: 2.8 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_bedside_r', catalogId: 'bedside_table', pos: { x: 3.4, y: 0, z: 2.8 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_bed_w', catalogId: 'wardrobe', pos: { x: 3.3, y: 0, z: 0.6 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    // Bathroom (Right Bottom)
+    { id: 'e2_bath', catalogId: 'bath', pos: { x: 2.5, y: 0, z: -1.3 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_toilet', catalogId: 'toilet', pos: { x: 3.5, y: 0, z: -2.8 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'e2_sink', catalogId: 'sink', pos: { x: 1.2, y: 0, z: -2.0 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } }
+];
+
+export const euro2Preset: SceneData = {
+    schemaVersion: '1.0',
+    walls: [],
+    nodes: euro2Nodes,
+    edges: euro2Edges,
+    openings: euro2Openings,
+    objects: euro2Furniture,
     materials: {
         floorId: 'wood_oak',
+        wallColor: '#faf9f6',
         wallIds: {}
     },
     camera: {
         mode: '3d',
-        position: { x: 0, y: 12, z: 12 },
+        position: { x: 0, y: 11, z: 11 },
         target: { x: 0, y: 0, z: 0 }
     }
 };
 
-// --- 2. Industrial Loft Studio Preset ---
-// Redesigned with fewer partitions for open-plan studio layout!
-const loftNodes: WallNode[] = [
-    { id: 'node_1', x: -5, y: -4 },
-    { id: 'node_2', x: 5, y: -4 },
-    { id: 'node_3', x: 5, y: 4 },
-    { id: 'node_4', x: -5, y: 4 },
-    { id: 'node_9', x: 1, y: -2 },
-    { id: 'node_10', x: 5, y: -2 }
-];
-
-const loftEdges: WallEdge[] = [
-    // Outer walls - Bearing
-    { id: 'edge_1_2', startNodeId: 'node_1', endNodeId: 'node_2', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_2_3', startNodeId: 'node_2', endNodeId: 'node_3', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_3_4', startNodeId: 'node_3', endNodeId: 'node_4', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_4_1', startNodeId: 'node_4', endNodeId: 'node_1', thickness: 0.25, height: 2.7, kind: 'bearing' },
-
-    // Bathroom partition is kept, but bedroom wall is REMOVED for open studio!
-    { id: 'edge_9_10', startNodeId: 'node_9', endNodeId: 'node_10', thickness: 0.15, height: 2.7, kind: 'partition' },
-    // Short screen wall at entrance
-    { id: 'edge_screen', startNodeId: 'node_9', endNodeId: 'node_1', thickness: 0.15, height: 2.7, kind: 'partition' }
-];
-
-const loftOpenings: Opening[] = [
-    { id: 'opening_entrance', wallId: 'edge_1_2', kind: 'door', t: 0.75, width: 0.9, height: 2.1, sillHeight: 0 },
-    { id: 'opening_bathroom_door', wallId: 'edge_9_10', kind: 'door', t: 0.3, width: 0.8, height: 2.0, sillHeight: 0 },
-    { id: 'opening_pano_window', wallId: 'edge_4_1', kind: 'window', t: 0.5, width: 3.5, height: 2.5, sillHeight: 0.05 }, // Huge panoramic
-    { id: 'opening_bedroom_window', wallId: 'edge_2_3', kind: 'window', t: 0.7, width: 1.8, height: 1.8, sillHeight: 0.6 }
-];
-
-const loftFurniture: FurnitureObject[] = [
-    { id: 'spawn_point', catalogId: 'spawn_point', pos: { x: 3.5, y: 0, z: -3.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    // Open Space Living Area
-    { id: 'loft_sofa', catalogId: 'sofa_3', pos: { x: -2.5, y: 0, z: -1.0 }, rot: Math.PI / 4, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_armchair', catalogId: 'armchair', pos: { x: -1.2, y: 0, z: -2.0 }, rot: -Math.PI / 4, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_tv_stand', catalogId: 'tv_stand', pos: { x: -4.0, y: 0, z: -2.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_tv', catalogId: 'tv', pos: { x: -4.0, y: 0.6, z: -2.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-
-    // Office Workspace in Living Room
-    { id: 'loft_desk', catalogId: 'table_desk', pos: { x: -4.0, y: 0, z: 2.0 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_office_chair', catalogId: 'chair_office', pos: { x: -3.2, y: 0, z: 2.0 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-
-    // Kitchen / Bar
-    { id: 'loft_kitchen', catalogId: 'kitchen_set', pos: { x: -1.5, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_fridge', catalogId: 'refrigerator', pos: { x: -2.8, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-
-    // Open Bedroom Zone (Top Right)
-    { id: 'loft_bed', catalogId: 'bed_double', pos: { x: 3.5, y: 0, z: 2.5 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_wardrobe', catalogId: 'wardrobe', pos: { x: 1.5, y: 0, z: 2.0 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-
-    // Bathroom (Middle Right)
-    { id: 'loft_bath', catalogId: 'shower', pos: { x: 2.0, y: 0, z: -1.0 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } }, // Shower instead of bath
-    { id: 'loft_toilet', catalogId: 'toilet', pos: { x: 4.5, y: 0, z: -1.6 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'loft_sink', catalogId: 'sink', pos: { x: 3.2, y: 0, z: -1.2 }, rot: 0, scale: { x: 1, y: 1, z: 1 } }
-];
-
-export const loftPreset: SceneData = {
-    schemaVersion: '1.0',
-    walls: [],
-    nodes: loftNodes,
-    edges: loftEdges,
-    openings: loftOpenings,
-    objects: loftFurniture,
-    materials: {
-        floorId: 'concrete_dark',
-        wallIds: {}
-    },
-    camera: {
-        mode: '3d',
-        position: { x: -6, y: 8, z: 10 },
-        target: { x: 0, y: 0, z: 0 }
-    }
-};
-
-// --- 3. Cozy Family Layout Preset ---
-// Redesigned with an EXTRA bedroom partition wall to make a Kids room!
+// ==========================================
+// 3. Family 3-Room Luxury Preset (78.4 m²: 10m x 8m)
+// ==========================================
 const familyNodes: WallNode[] = [
-    { id: 'node_1', x: -5, y: -4 },
-    { id: 'node_2', x: 5, y: -4 },
-    { id: 'node_3', x: 5, y: 4 },
-    { id: 'node_4', x: -5, y: 4 },
-    { id: 'node_5', x: 1, y: -4 },
-    { id: 'node_6', x: 1, y: 4 },
-    { id: 'node_7', x: 1, y: 0.5 },
-    { id: 'node_8', x: 5, y: 0.5 },
-    { id: 'node_9', x: 1, y: -2 },
-    { id: 'node_10', x: 5, y: -2 },
-    // Kids wall nodes
-    { id: 'node_k1', x: 3.0, y: 0.5 },
-    { id: 'node_k2', x: 3.0, y: 4.0 }
+    { id: 'f_n1', x: -5.0, y: -4.0 },
+    { id: 'f_n2', x: 5.0, y: -4.0 },
+    { id: 'f_n3', x: 5.0, y: 4.0 },
+    { id: 'f_n4', x: -5.0, y: 4.0 },
+    // Central corridor partition
+    { id: 'f_n5', x: 0.5, y: -4.0 },
+    { id: 'f_n6', x: 0.5, y: 4.0 },
+    { id: 'f_n7', x: 0.5, y: 0.5 },
+    { id: 'f_n8', x: 5.0, y: 0.5 },
+    { id: 'f_n9', x: 0.5, y: -2.0 },
+    { id: 'f_n10', x: 5.0, y: -2.0 },
+    // Kids Room Split Node
+    { id: 'f_nk1', x: 2.8, y: 0.5 },
+    { id: 'f_nk2', x: 2.8, y: 4.0 }
 ];
 
 const familyEdges: WallEdge[] = [
     // Outer walls
-    { id: 'edge_1_2', startNodeId: 'node_1', endNodeId: 'node_2', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_2_3', startNodeId: 'node_2', endNodeId: 'node_3', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_3_4', startNodeId: 'node_3', endNodeId: 'node_4', thickness: 0.25, height: 2.7, kind: 'bearing' },
-    { id: 'edge_4_1', startNodeId: 'node_4', endNodeId: 'node_1', thickness: 0.25, height: 2.7, kind: 'bearing' },
-
-    // Inner partitions
-    { id: 'edge_5_9', startNodeId: 'node_5', endNodeId: 'node_9', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_9_7', startNodeId: 'node_9', endNodeId: 'node_7', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_7_6', startNodeId: 'node_7', endNodeId: 'node_6', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_7_k1', startNodeId: 'node_7', endNodeId: 'node_k1', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_k1_8', startNodeId: 'node_k1', endNodeId: 'node_8', thickness: 0.15, height: 2.7, kind: 'partition' },
-    { id: 'edge_9_10', startNodeId: 'node_9', endNodeId: 'node_10', thickness: 0.15, height: 2.7, kind: 'partition' },
-
-    // EXTRA partition splitting the bedroom area into Master Bedroom and Kids room!
-    { id: 'edge_kids_split', startNodeId: 'node_k1', endNodeId: 'node_k2', thickness: 0.12, height: 2.7, kind: 'partition' }
+    { id: 'f_e1_2', startNodeId: 'f_n1', endNodeId: 'f_n2', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 'f_e2_3', startNodeId: 'f_n2', endNodeId: 'f_n3', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 'f_e3_4', startNodeId: 'f_n3', endNodeId: 'f_n4', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    { id: 'f_e4_1', startNodeId: 'f_n4', endNodeId: 'f_n1', thickness: 0.25, height: 2.7, kind: 'bearing' },
+    // Inner Partitions
+    { id: 'f_e5_9', startNodeId: 'f_n5', endNodeId: 'f_n9', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'f_e9_7', startNodeId: 'f_n9', endNodeId: 'f_n7', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'f_e7_6', startNodeId: 'f_n7', endNodeId: 'f_n6', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'f_e7_k1', startNodeId: 'f_n7', endNodeId: 'f_nk1', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'f_ek1_8', startNodeId: 'f_nk1', endNodeId: 'f_n8', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'f_e9_10', startNodeId: 'f_n9', endNodeId: 'f_n10', thickness: 0.15, height: 2.7, kind: 'partition' },
+    { id: 'f_ekids_split', startNodeId: 'f_nk1', endNodeId: 'f_nk2', thickness: 0.12, height: 2.7, kind: 'partition' }
 ];
 
 const familyOpenings: Opening[] = [
-    { id: 'opening_entrance', wallId: 'edge_1_2', kind: 'door', t: 0.75, width: 0.9, height: 2.1, sillHeight: 0 },
-    // Door to Kids Room on edge 7-6 (t = 0.25)
-    { id: 'opening_kids_door', wallId: 'edge_7_6', kind: 'door', t: 0.25, width: 0.8, height: 2.0, sillHeight: 0 },
-    // Door to Master Bedroom on edge kids_split (t = 0.2)
-    { id: 'opening_master_door', wallId: 'edge_kids_split', kind: 'door', t: 0.2, width: 0.8, height: 2.0, sillHeight: 0 },
-    { id: 'opening_bathroom_door', wallId: 'edge_9_10', kind: 'door', t: 0.3, width: 0.8, height: 2.0, sillHeight: 0 },
-    { id: 'opening_living_window_1', wallId: 'edge_4_1', kind: 'window', t: 0.3, width: 1.5, height: 1.5, sillHeight: 0.9 },
-    { id: 'opening_living_window_2', wallId: 'edge_4_1', kind: 'window', t: 0.7, width: 1.5, height: 1.5, sillHeight: 0.9 },
-    // Window for master bedroom
-    { id: 'opening_master_window', wallId: 'edge_2_3', kind: 'window', t: 0.8, width: 1.4, height: 1.5, sillHeight: 0.9 },
-    // Window for kids room on top edge 3-4 (t = 0.8 is in the kids room area)
-    { id: 'opening_kids_window', wallId: 'edge_3_4', kind: 'window', t: 0.8, width: 1.2, height: 1.5, sillHeight: 0.9 }
+    { id: 'f_op_door_in', wallId: 'f_e1_2', kind: 'door', t: 0.75, width: 0.9, height: 2.1, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'f_op_door_kids', wallId: 'f_e7_6', kind: 'door', t: 0.25, width: 0.8, height: 2.0, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'f_op_door_master', wallId: 'f_ekids_split', kind: 'door', t: 0.2, width: 0.8, height: 2.0, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'f_op_door_bath', wallId: 'f_e9_10', kind: 'door', t: 0.3, width: 0.8, height: 2.0, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'f_op_win_liv1', wallId: 'f_e4_1', kind: 'window', t: 0.3, width: 1.6, height: 1.5, sillHeight: 0.9 },
+    { id: 'f_op_win_liv2', wallId: 'f_e4_1', kind: 'window', t: 0.75, width: 1.6, height: 1.5, sillHeight: 0.9 },
+    { id: 'f_op_win_master', wallId: 'f_e2_3', kind: 'window', t: 0.8, width: 1.6, height: 1.5, sillHeight: 0.9 },
+    { id: 'f_op_win_kids', wallId: 'f_e3_4', kind: 'window', t: 0.8, width: 1.4, height: 1.5, sillHeight: 0.9 }
 ];
 
 const familyFurniture: FurnitureObject[] = [
     { id: 'spawn_point', catalogId: 'spawn_point', pos: { x: 3.5, y: 0, z: -3.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    // Living Room (Left side) - Sofa, dining, kitchen
-    { id: 'fam_sofa', catalogId: 'sofa_2', pos: { x: -3.2, y: 0, z: -1.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Living Room (Left)
+    { id: 'fam_sofa', catalogId: 'sofa_3', pos: { x: -3.2, y: 0, z: -1.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_armchair', catalogId: 'armchair', pos: { x: -1.5, y: 0, z: -1.5 }, rot: -Math.PI / 4, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_tv_stand', catalogId: 'tv_stand', pos: { x: -0.2, y: 0, z: -1.0 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_tv', catalogId: 'tv', pos: { x: -0.2, y: 0.6, z: -1.0 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_table', catalogId: 'table_dining', pos: { x: -2.2, y: 0, z: 1.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'fam_chair_1', catalogId: 'chair_dining', pos: { x: -2.8, y: 0, z: 1.5 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'fam_chair_2', catalogId: 'chair_dining', pos: { x: -1.6, y: 0, z: 1.5 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'fam_ch1', catalogId: 'chair_dining', pos: { x: -2.8, y: 0, z: 1.5 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'fam_ch2', catalogId: 'chair_dining', pos: { x: -1.6, y: 0, z: 1.5 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_kitchen', catalogId: 'kitchen_set', pos: { x: -3.8, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_fridge', catalogId: 'refrigerator', pos: { x: -4.7, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-
     // Master Bedroom (Top Right)
     { id: 'fam_master_bed', catalogId: 'bed_double', pos: { x: 4.0, y: 0, z: 2.2 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'fam_master_wardrobe', catalogId: 'wardrobe', pos: { x: 4.4, y: 0, z: 0.9 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-
-    // Kids Room (Middle Right, between main bedroom and living)
-    { id: 'fam_kids_bed', catalogId: 'bed_single', pos: { x: 1.5, y: 0, z: 2.5 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'fam_kids_desk', catalogId: 'table_desk', pos: { x: 2.5, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'fam_kids_chair', catalogId: 'chair_dining', pos: { x: 2.5, y: 0, z: 2.8 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
-
-    // Bathroom (Middle Right)
+    { id: 'fam_master_w', catalogId: 'wardrobe', pos: { x: 4.4, y: 0, z: 0.9 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Kids Room (Center Top)
+    { id: 'fam_kids_bed', catalogId: 'bed_single', pos: { x: 1.4, y: 0, z: 2.5 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'fam_kids_desk', catalogId: 'table_desk', pos: { x: 2.1, y: 0, z: 3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'fam_kids_ch', catalogId: 'chair_dining', pos: { x: 2.1, y: 0, z: 2.8 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Bathroom (Right Bottom)
     { id: 'fam_bath', catalogId: 'bath', pos: { x: 3.2, y: 0, z: -0.8 }, rot: Math.PI, scale: { x: 1, y: 1, z: 1 } },
     { id: 'fam_toilet', catalogId: 'toilet', pos: { x: 4.5, y: 0, z: -1.6 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-    { id: 'fam_sink', catalogId: 'sink', pos: { x: 1.5, y: 0, z: -1.2 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
-
-    // Hallway / Entrance Wardrobe
-    { id: 'fam_hall_wardrobe', catalogId: 'wardrobe', pos: { x: 4.2, y: 0, z: -3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } }
+    { id: 'fam_sink', catalogId: 'sink', pos: { x: 1.2, y: 0, z: -1.2 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'fam_hall_w', catalogId: 'wardrobe', pos: { x: 4.2, y: 0, z: -3.4 }, rot: 0, scale: { x: 1, y: 1, z: 1 } }
 ];
 
 export const familyPreset: SceneData = {
@@ -256,7 +294,8 @@ export const familyPreset: SceneData = {
     openings: familyOpenings,
     objects: familyFurniture,
     materials: {
-        floorId: 'wood_oak',
+        floorId: 'wood_chevron',
+        wallColor: '#faf9f6',
         wallIds: {}
     },
     camera: {
@@ -266,9 +305,97 @@ export const familyPreset: SceneData = {
     }
 };
 
-// Map of local presets
+// ==========================================
+// 4. Penthouse Anniversary Preset (112.0 m²: 12m x 9.5m)
+// ==========================================
+const penthouseNodes: WallNode[] = [
+    { id: 'p_n1', x: -6.0, y: -4.75 },
+    { id: 'p_n2', x: 6.0, y: -4.75 },
+    { id: 'p_n3', x: 6.0, y: 4.75 },
+    { id: 'p_n4', x: -6.0, y: 4.75 },
+    // Master Suite divider
+    { id: 'p_n5', x: 1.5, y: -4.75 },
+    { id: 'p_n6', x: 1.5, y: 1.5 },
+    { id: 'p_n7', x: 6.0, y: 1.5 },
+    // Private Master Bath
+    { id: 'p_n8', x: 1.5, y: -1.8 },
+    { id: 'p_n9', x: 6.0, y: -1.8 }
+];
+
+const penthouseEdges: WallEdge[] = [
+    { id: 'p_e1_2', startNodeId: 'p_n1', endNodeId: 'p_n2', thickness: 0.25, height: 3.3, kind: 'bearing' },
+    { id: 'p_e2_3', startNodeId: 'p_n2', endNodeId: 'p_n3', thickness: 0.25, height: 3.3, kind: 'bearing' },
+    { id: 'p_e3_4', startNodeId: 'p_n3', endNodeId: 'p_n4', thickness: 0.25, height: 3.3, kind: 'bearing' },
+    { id: 'p_e4_1', startNodeId: 'p_n4', endNodeId: 'p_n1', thickness: 0.25, height: 3.3, kind: 'bearing' },
+    // Master Suite & Bath Partitions
+    { id: 'p_e5_8', startNodeId: 'p_n5', endNodeId: 'p_n8', thickness: 0.15, height: 3.3, kind: 'partition' },
+    { id: 'p_e8_6', startNodeId: 'p_n8', endNodeId: 'p_n6', thickness: 0.15, height: 3.3, kind: 'partition' },
+    { id: 'p_e6_7', startNodeId: 'p_n6', endNodeId: 'p_n7', thickness: 0.15, height: 3.3, kind: 'partition' },
+    { id: 'p_e8_9', startNodeId: 'p_n8', endNodeId: 'p_n9', thickness: 0.15, height: 3.3, kind: 'partition' }
+];
+
+const penthouseOpenings: Opening[] = [
+    { id: 'p_op_door_in', wallId: 'p_e1_2', kind: 'door', t: 0.2, width: 1.0, height: 2.3, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'p_op_door_suite', wallId: 'p_e6_7', kind: 'door', t: 0.25, width: 0.9, height: 2.2, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    { id: 'p_op_door_bath', wallId: 'p_e8_9', kind: 'door', t: 0.3, width: 0.8, height: 2.1, sillHeight: 0, hingeSide: 'left', swingSide: 'in' },
+    // Huge Panoramic Glazing walls
+    { id: 'p_op_win_pano1', wallId: 'p_e4_1', kind: 'window', t: 0.5, width: 5.5, height: 3.0, sillHeight: 0.05 },
+    { id: 'p_op_win_pano2', wallId: 'p_e3_4', kind: 'window', t: 0.5, width: 4.5, height: 3.0, sillHeight: 0.05 },
+    { id: 'p_op_win_bed', wallId: 'p_e2_3', kind: 'window', t: 0.75, width: 2.6, height: 2.6, sillHeight: 0.1 }
+];
+
+const penthouseFurniture: FurnitureObject[] = [
+    { id: 'spawn_point', catalogId: 'spawn_point', pos: { x: -3.5, y: 0, z: -3.5 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    // Grand Lounge Area
+    { id: 'p_sofa_main', catalogId: 'sofa_corner', pos: { x: -3.5, y: 0, z: -0.5 }, rot: 0, scale: { x: 1.2, y: 1, z: 1.2 } },
+    { id: 'p_armchair1', catalogId: 'armchair', pos: { x: -1.2, y: 0, z: -1.5 }, rot: -Math.PI / 4, scale: { x: 1.1, y: 1, z: 1.1 } },
+    { id: 'p_armchair2', catalogId: 'armchair', pos: { x: -1.2, y: 0, z: 0.5 }, rot: -Math.PI * 0.75, scale: { x: 1.1, y: 1, z: 1.1 } },
+    { id: 'p_tv_stand', catalogId: 'tv_stand', pos: { x: -5.6, y: 0, z: -0.5 }, rot: Math.PI / 2, scale: { x: 1.2, y: 1, z: 1 } },
+    { id: 'p_tv', catalogId: 'tv', pos: { x: -5.6, y: 0.6, z: -0.5 }, rot: Math.PI / 2, scale: { x: 1.3, y: 1, z: 1 } },
+    // Island Kitchen & Dining
+    { id: 'p_kit', catalogId: 'kitchen_set', pos: { x: -3.5, y: 0, z: 4.1 }, rot: 0, scale: { x: 1.4, y: 1, z: 1 } },
+    { id: 'p_fridge', catalogId: 'refrigerator', pos: { x: -5.2, y: 0, z: 4.1 }, rot: 0, scale: { x: 1.1, y: 1, z: 1 } },
+    { id: 'p_dining', catalogId: 'table_dining', pos: { x: -0.5, y: 0, z: 3.2 }, rot: Math.PI / 2, scale: { x: 1.3, y: 1, z: 1.1 } },
+    { id: 'p_ch1', catalogId: 'chair_dining', pos: { x: 0.1, y: 0, z: 3.2 }, rot: -Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'p_ch2', catalogId: 'chair_dining', pos: { x: -1.1, y: 0, z: 3.2 }, rot: Math.PI / 2, scale: { x: 1, y: 1, z: 1 } },
+    // Master Suite
+    { id: 'p_bed', catalogId: 'bed_double', pos: { x: 3.8, y: 0, z: 3.0 }, rot: Math.PI, scale: { x: 1.1, y: 1, z: 1.1 } },
+    { id: 'p_bed_l', catalogId: 'bedside_table', pos: { x: 2.6, y: 0, z: 3.8 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'p_bed_r', catalogId: 'bedside_table', pos: { x: 5.0, y: 0, z: 3.8 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'p_wardrobe', catalogId: 'wardrobe', pos: { x: 5.4, y: 0, z: 2.0 }, rot: Math.PI / 2, scale: { x: 1.2, y: 1, z: 1 } },
+    // Master Luxury Bath
+    { id: 'p_bath', catalogId: 'bath', pos: { x: 4.5, y: 0, z: -3.2 }, rot: 0, scale: { x: 1.1, y: 1, z: 1.1 } },
+    { id: 'p_shower', catalogId: 'shower', pos: { x: 2.3, y: 0, z: -2.3 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'p_toilet', catalogId: 'toilet', pos: { x: 2.3, y: 0, z: -4.0 }, rot: 0, scale: { x: 1, y: 1, z: 1 } },
+    { id: 'p_sink', catalogId: 'sink', pos: { x: 5.4, y: 0, z: -4.0 }, rot: -Math.PI / 2, scale: { x: 1.2, y: 1, z: 1 } }
+];
+
+export const penthousePreset: SceneData = {
+    schemaVersion: '1.0',
+    walls: [],
+    nodes: penthouseNodes,
+    edges: penthouseEdges,
+    openings: penthouseOpenings,
+    objects: penthouseFurniture,
+    materials: {
+        floorId: 'marble_calacatta',
+        wallColor: '#faf9f6',
+        wallIds: {}
+    },
+    camera: {
+        mode: '3d',
+        position: { x: 0, y: 15, z: 15 },
+        target: { x: 0, y: 0, z: 0 }
+    }
+};
+
+// Map of presets with backward compatibility aliases
 export const PRESETS_MAP: Record<string, SceneData> = {
-    scandi: scandiPreset,
-    loft: loftPreset,
-    family: familyPreset
+    studio: studioPreset,
+    euro2: euro2Preset,
+    family: familyPreset,
+    penthouse: penthousePreset,
+    // Aliases
+    scandi: euro2Preset,
+    loft: studioPreset
 };

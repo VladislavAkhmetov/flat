@@ -1,15 +1,12 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: flat_postgres
     environment:
       POSTGRES_USER: flat_user
       POSTGRES_PASSWORD: flat_password
       POSTGRES_DB: flat_db
     ports:
-      - "5432:5432"
+      - "${FLAT_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

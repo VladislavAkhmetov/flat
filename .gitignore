@@ -19,3 +19,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+tools/
+.venv/
+.flat-local-ports.json
+.flat-local.lock

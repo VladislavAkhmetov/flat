@@ -2,9 +2,13 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { FURNITURE_CATALOG } from '../catalog';
 import { v4 as uuidv4 } from 'uuid';
+import { PlanLoadingOverlay, type PlanLoadPhase } from './PlanLoadingOverlay';
+import { convertRoomPlanToSceneData, isRoomPlanData } from '@flat/shared';
+import { LiDARScanModal } from './LiDARScanModal';
 
 // Uses import.meta.env for Vite or fallback
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api';
+const AI_URL = (import.meta as any).env?.VITE_AI_URL || 'http://localhost:5000';
 
 export const PlanUploader: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -12,42 +16,47 @@ export const PlanUploader: React.FC = () => {
     const addWall = useStore(state => state.addWall);
     const clearWalls = useStore(state => state.clearWalls);
     const setEditorMode = useStore(state => state.setEditorMode);
-    const addObject = useStore(state => state.addObject);
-
     // Subscribe to store changes
     const detectionThreshold = useStore(state => state.detectionThreshold);
+    const thresholdManual = useStore(state => state.thresholdManual);
     const editorMode = useStore(state => state.editorMode);
     const imageProcessing = useStore(state => state.imageProcessing);
 
     const [isLoading, setIsLoading] = useState(false);
+    const [loadPhase, setLoadPhase] = useState<PlanLoadPhase>('upload');
+    const [isReprocess, setIsReprocess] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const previewUrlRef = useRef<string | null>(null);
     const [currentFile, setCurrentFile] = useState<File | null>(null);
+    const [isLiDARModalOpen, setIsLiDARModalOpen] = useState(false);
 
-    // Debounce ref
+    // Debounce ref. threshold sentinel -1 = auto (do not send threshold to AI).
     const debounceTimer = useRef<NodeJS.Timeout>();
     const lastProcessedParams = useRef({
         fileName: '',
-        threshold: -1,
+        threshold: -1 as number,
         grayscale: false,
         contrast: 1.0
     });
 
-    // Re-process when threshold changes
+    // Re-process only when the user changes sensitivity / B&W / HDR — not on initial upload.
     useEffect(() => {
-        console.log(`[PlanUploader] Effect triggered: threshold=${detectionThreshold}, file=${currentFile?.name || 'null'}, mode=${editorMode}`);
+        const effectiveThreshold = thresholdManual ? detectionThreshold : -1;
+        console.log(`[PlanUploader] Effect triggered: threshold=${effectiveThreshold} (manual=${thresholdManual}), file=${currentFile?.name || 'null'}, mode=${editorMode}`);
 
         if (!currentFile) {
             console.log('[PlanUploader] No currentFile - skipping re-process');
             return;
         }
-        if (editorMode !== 'walls') {
-            console.log('[PlanUploader] Not in walls mode - skipping re-process');
+        const inReview = useStore.getState().planReviewActive;
+        if (editorMode !== 'walls' && !inReview) {
+            console.log('[PlanUploader] Not in walls/review mode - skipping re-process');
             return;
         }
 
-        // Check if parameters actually changed from what we last processed
         const currentParams = {
             fileName: currentFile.name,
-            threshold: detectionThreshold,
+            threshold: effectiveThreshold,
             grayscale: imageProcessing.grayscale,
             contrast: imageProcessing.contrast
         };
@@ -62,24 +71,85 @@ export const PlanUploader: React.FC = () => {
             return;
         }
 
-        // Debounce logic
+        // Initial upload already called processWithAI without threshold — don't race a second request.
+        if (
+            lastProcessedParams.current.fileName === currentParams.fileName &&
+            lastProcessedParams.current.threshold === -1 &&
+            !thresholdManual &&
+            lastProcessedParams.current.grayscale === currentParams.grayscale &&
+            lastProcessedParams.current.contrast === currentParams.contrast
+        ) {
+            return;
+        }
+
         if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
         debounceTimer.current = setTimeout(() => {
-            console.log(`[PlanUploader] Debounce complete, calling processWithAI(threshold=${detectionThreshold})...`);
-            processWithAI(currentFile, detectionThreshold);
-        }, 500); // 500ms debounce
+            const thr = thresholdManual ? detectionThreshold : undefined;
+            const effective = thr !== undefined ? thr : -1;
+            // Re-check after debounce — upload may have already processed with auto.
+            if (
+                lastProcessedParams.current.fileName === currentFile.name &&
+                lastProcessedParams.current.threshold === effective &&
+                lastProcessedParams.current.grayscale === imageProcessing.grayscale &&
+                lastProcessedParams.current.contrast === imageProcessing.contrast
+            ) {
+                console.log('[PlanUploader] Debounce skipped — already processed with same params');
+                return;
+            }
+            console.log(`[PlanUploader] Debounce complete, calling processWithAI(threshold=${thr ?? 'auto'})...`);
+            processWithAI(currentFile, thr, { showOverlay: true, reprocess: true });
+        }, 500);
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
         };
-    }, [detectionThreshold, currentFile, editorMode, imageProcessing]);
+    }, [detectionThreshold, thresholdManual, currentFile, editorMode, imageProcessing]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Direct import of 3D LiDAR (Apple RoomPlan) or Flat Scene JSON
+        if (file.name.endsWith('.json') || file.type === 'application/json') {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const content = event.target?.result as string;
+                    const parsed = JSON.parse(content);
+                    if (isRoomPlanData(parsed) || parsed.walls) {
+                        const scene = convertRoomPlanToSceneData(parsed);
+                        useStore.getState().loadScene(scene);
+                        useStore.getState().setCameraMode('3d');
+                    } else if (parsed.schemaVersion === '1.0') {
+                        useStore.getState().loadScene(parsed);
+                    }
+                } catch (err: any) {
+                    alert('Не удалось разобрать JSON-скан: ' + (err.message || err));
+                }
+            };
+            reader.readAsText(file);
+            return;
+        }
+
+        // Cancel any pending re-process from a previous file / slider
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
         setCurrentFile(file); // Save for re-processing
+        setPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            const url = URL.createObjectURL(file);
+            previewUrlRef.current = url;
+            return url;
+        });
+        setIsReprocess(false);
+        setLoadPhase('upload');
+        // Mark auto params early so the effect does not race a second AI call
+        lastProcessedParams.current = {
+            fileName: file.name,
+            threshold: -1,
+            grayscale: useStore.getState().imageProcessing.grayscale,
+            contrast: useStore.getState().imageProcessing.contrast,
+        };
         setIsLoading(true);
         const formData = new FormData();
         formData.append('file', file);
@@ -105,8 +175,10 @@ export const PlanUploader: React.FC = () => {
                 // Switch to walls mode automatically
                 setEditorMode('walls');
 
-                // Process with AI (default threshold first)
+                setLoadPhase('recognize');
                 await processWithAI(file);
+                setLoadPhase('apply');
+                await new Promise((r) => setTimeout(r, 500));
             } else {
                 console.error('[PlanUploader] No URL in response');
             }
@@ -119,10 +191,11 @@ export const PlanUploader: React.FC = () => {
     };
 
     // Helpler function for AI processing
-    async function processWithAI(file: File, thresholdVal?: number) {
+    async function processWithAI(file: File, thresholdVal?: number, opts?: { showOverlay?: boolean; reprocess?: boolean }) {
         // Call AI service to process the plan
         const formData = new FormData();
         formData.append('file', file);
+        // Only send threshold when the user explicitly moved the sensitivity slider.
         if (thresholdVal !== undefined) {
             formData.append('threshold', thresholdVal.toString());
         }
@@ -132,20 +205,25 @@ export const PlanUploader: React.FC = () => {
         if (processing.grayscale) formData.append('grayscale', 'true');
         if (processing.contrast > 1) formData.append('contrast', processing.contrast.toString());
 
-        // Update last processed parameters to prevent redundant runs
+        // Update last processed parameters to prevent redundant runs (-1 = auto)
         lastProcessedParams.current = {
             fileName: file.name,
-            threshold: thresholdVal !== undefined ? thresholdVal : useStore.getState().detectionThreshold,
+            threshold: thresholdVal !== undefined ? thresholdVal : -1,
             grayscale: processing.grayscale,
             contrast: processing.contrast
         };
 
+        const showOverlay = !!opts?.showOverlay;
+        if (showOverlay) {
+            setIsReprocess(!!opts?.reprocess);
+            setLoadPhase('recognize');
+            setIsLoading(true);
+        }
+
         try {
             console.log(`[PlanUploader] Sending to AI service (threshold=${thresholdVal})...`);
 
-            // Assume AI service is on 5000 (proxied or direct)
-            // Note: In docker setup this might be different, but for localhost dev it's 5000
-            const res = await fetch('http://localhost:5000/process-plan', {
+            const res = await fetch(`${AI_URL}/process-plan`, {
                 method: 'POST',
                 body: formData,
             });
@@ -165,10 +243,15 @@ export const PlanUploader: React.FC = () => {
             const data = await res.json();
             console.log('[PlanUploader] AI response data:', data, 'Walls:', data.walls?.length);
 
+            // px -> meters: prefer the backend's calibrated scale (door-based),
+            // fall back to the legacy "long side = 10 m" heuristic
+            const maxDim = Math.max(data.image_width || 1, data.image_height || 1);
+            const scale = (data.px_per_meter && data.px_per_meter > 0)
+                ? 1 / data.px_per_meter
+                : 10 / maxDim;
+
             // Always update plan dimensions from AI response
             if (data.image_width && data.image_height) {
-                const maxDim = Math.max(data.image_width, data.image_height);
-                const scale = 10 / maxDim;
                 const scaledWidth = data.image_width * scale;
                 const scaledHeight = data.image_height * scale;
 
@@ -182,14 +265,23 @@ export const PlanUploader: React.FC = () => {
                 }
             }
 
+            // Batch the whole AI import into a SINGLE undo entry
+            useStore.getState().beginHistoryBatch();
+            // Furniture is deferred until structure confirm (phase 2)
+            const pendingFurnitureBatch: Array<{
+                id: string;
+                catalogId: string;
+                pos: { x: number; y: number; z: number };
+                rot: number;
+                scale: { x: number; y: number; z: number };
+            }> = [];
+            try {
+
             // Always clear walls when re-processing (even if new result is empty)
             // This ensures slider to "low sensitivity" actually clears walls
             clearWalls();
 
             if (data.walls && Array.isArray(data.walls) && data.walls.length > 0) {
-                // Calculate scale factor from actual image dimensions
-                const maxDim = Math.max(data.image_width, data.image_height);
-                const scale = 10 / maxDim;
 
                 // Dictionary to deduplicate nodes (fuzzy matching)
                 const nodeMap = new Map<string, string>(); // "x,y" -> nodeId
@@ -223,6 +315,9 @@ export const PlanUploader: React.FC = () => {
                     }
                 });
 
+                // Stitch near-miss corners (gaps up to ~0.4m) before placing openings
+                useStore.getState().healWallGraph();
+
                 // Furniture & Opening Placement
                 if (data.furniture && Array.isArray(data.furniture)) {
                     console.log(`[PlanUploader] Placing ${data.furniture.length} furniture & opening items...`);
@@ -254,6 +349,7 @@ export const PlanUploader: React.FC = () => {
                             let minDist = Infinity;
                             let bestT = 0.5;
                             let bestWidth = catalogItem.dimensions.width;
+                            let bestWallLen = 1;
 
                             const isDoor = catalogItem.id.includes('door');
 
@@ -276,40 +372,52 @@ export const PlanUploader: React.FC = () => {
                                         const cy = ay + t * dy;
                                         let dist = Math.hypot(x - cx, y - cy);
 
-                                        // Prioritize vertical walls for doors if they are close
-                                        const isVertical = Math.abs(dx) < Math.abs(dy); // Vertical segment
+                                        const isVertical = Math.abs(dx) < Math.abs(dy);
                                         if (isDoor && isVertical && dist < 0.8) {
-                                            dist -= 0.5; // Give significant boost to vertical walls for door snapping
+                                            dist -= 0.5;
                                         }
 
                                         if (dist < minDist) {
                                             minDist = dist;
                                             nearestEdge = edge;
                                             bestT = t;
+                                            bestWallLen = Math.sqrt(segLengthSq);
 
-                                            // Calculate opening width along the wall direction
-                                            const len = Math.sqrt(segLengthSq);
-                                            const ux = dx / len;
-                                            const uy = dy / len;
-                                            // Project bounding box size along wall direction
+                                            const ux = dx / bestWallLen;
+                                            const uy = dy / bestWallLen;
                                             const w = Math.abs(item.width * scale * ux) + Math.abs(item.height * scale * uy);
-                                            bestWidth = Math.max(0.6, Math.min(3.0, w));
+                                            // Door YOLO boxes include the swing arc — use catalog width.
+                                            // Gap-sealed windows send along-wall size in width/height.
+                                            bestWidth = isDoor
+                                                ? catalogItem.dimensions.width
+                                                : Math.max(0.9, Math.min(2.8, w || catalogItem.dimensions.width));
                                         }
                                     }
                                 }
                             });
 
-                            // Rule 1: No windows in internal partition walls (only on bearing/outer walls)
-                            const kind = catalogItem.id.includes('door') ? 'door' : 'window';
-                            if (kind === 'window' && nearestEdge && nearestEdge.kind === 'partition') {
-                                console.warn(`[PlanUploader] Skipping window on internal partition wall ${nearestEdge.id}`);
-                                return;
+                            let kind: 'door' | 'window' = catalogItem.id.includes('door') ? 'door' : 'window';
+                            const isPanoramic = catalogItem.id.includes('panoramic') || !!item.panoramic;
+                            // Panoramic / balcony glazing can span almost the full wall
+                            if (isPanoramic) {
+                                bestWidth = Math.max(bestWidth, Math.min(bestWallLen * 0.92, bestWallLen - 0.15));
                             }
 
-                            // Threshold: must be within 1.0 meter of a wall
-                            if (nearestEdge && minDist < 1.0) {
-                                console.log(`[PlanUploader] Placing opening (${kind}) inside wall ${nearestEdge.id} at t=${bestT.toFixed(2)}, width=${bestWidth.toFixed(2)} (dist=${minDist.toFixed(2)}m)`);
-                                state.addOpening(nearestEdge.id, bestT, kind, bestWidth);
+                            // Keep the opening fully inside the wall segment
+                            bestWidth = Math.min(bestWidth, Math.max(0.5, bestWallLen * 0.85));
+                            const halfT = (bestWidth / Math.max(bestWallLen, 0.01)) / 2;
+                            bestT = Math.max(halfT, Math.min(1 - halfT, bestT));
+
+                            const snapLimit = isDoor ? 1.6 : 1.2;
+                            if (nearestEdge && minDist < snapLimit) {
+                                console.log(`[PlanUploader] Placing opening (${kind}${isPanoramic ? '/pano' : ''}) inside wall ${nearestEdge.id} at t=${bestT.toFixed(2)}, width=${bestWidth.toFixed(2)} (dist=${minDist.toFixed(2)}m)`);
+                                const openingId = state.addOpening(nearestEdge.id, bestT, kind, bestWidth);
+                                if (isPanoramic && openingId) {
+                                    state.updateOpening(openingId, {
+                                        height: 2.4,
+                                        sillHeight: 0.05,
+                                    });
+                                }
                             } else {
                                 console.warn(`[PlanUploader] Opening ${catalogItem.name} found at (${x.toFixed(2)}, ${y.toFixed(2)}), but no close wall segment was found (minDist=${minDist.toFixed(2)}m)`);
                             }
@@ -396,7 +504,7 @@ export const PlanUploader: React.FC = () => {
                             // Convert degrees (backend) to radians (frontend) and add offset
                             const finalRotation = ((item.rotation || 0) * Math.PI / 180) + rotationOffset;
 
-                            addObject({
+                            pendingFurnitureBatch.push({
                                 id: uuidv4(),
                                 catalogId: finalCatalogId,
                                 pos: { x, y: 0, z: y },
@@ -405,7 +513,7 @@ export const PlanUploader: React.FC = () => {
                             });
 
                             if (finalCatalogId === 'tv_stand') {
-                                addObject({
+                                pendingFurnitureBatch.push({
                                     id: uuidv4(),
                                     catalogId: 'tv',
                                     pos: { x, y: 0, z: y },
@@ -420,11 +528,28 @@ export const PlanUploader: React.FC = () => {
                 console.warn('[PlanUploader] No walls in AI response');
                 simulateAIRecognition();
             }
+
+            // Hold AI furniture until structure is confirmed
+            useStore.setState({ pendingFurniture: pendingFurnitureBatch });
+
+            } finally {
+                useStore.getState().endHistoryBatch();
+            }
+
+            // Enter 2D QA review: manager fixes walls/openings on the PNG before furniture/3D
+            useStore.getState().startPlanReview();
+            if (showOverlay) setLoadPhase('apply');
         } catch (err) {
             console.error('[PlanUploader] AI processing failed:', err);
             if (!thresholdVal) {
                 alert('AI-сервис недоступен. Используется демо-режим.');
                 simulateAIRecognition();
+                useStore.getState().startPlanReview();
+            }
+        } finally {
+            if (showOverlay) {
+                setLoadPhase('apply');
+                setTimeout(() => setIsLoading(false), 450);
             }
         }
     }
@@ -458,23 +583,62 @@ export const PlanUploader: React.FC = () => {
 
     const IconUpload = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 
+    useEffect(() => {
+        return () => {
+            if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+        };
+    }, []);
+
     return (
-        <>
+        <div className="flex items-center gap-1">
             <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/webp,image/*,.json,application/json"
                 className="hidden"
                 onChange={handleFileChange}
             />
             <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isLoading}
-                className="w-10 h-10 flex items-center justify-center rounded-2xl hover:bg-white/60 text-gray-600 transition-all active:scale-95 disabled:opacity-30"
-                title="Загрузить план (AI)"
+                className="h-10 px-2.5 sm:px-3 flex items-center justify-center gap-1.5 rounded-2xl hover:bg-white/60 text-gray-600 transition-all active:scale-95 disabled:opacity-50 min-w-[2.5rem]"
+                title="Загрузить 2D-план (PNG/JPG) или файл скана (.json)"
             >
-                <IconUpload />
+                {isLoading ? (
+                    <span className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                    <IconUpload />
+                )}
+                <span className="hidden sm:inline text-xs font-bold">
+                    {isLoading ? 'ИИ…' : 'План'}
+                </span>
             </button>
-        </>
+
+            <button
+                onClick={() => setIsLiDARModalOpen(true)}
+                disabled={isLoading}
+                className="h-10 px-2.5 sm:px-3 flex items-center justify-center gap-1.5 rounded-2xl bg-gradient-to-r from-amber-500/10 to-rose-500/10 hover:from-amber-500/20 hover:to-rose-500/20 text-slate-700 dark:text-slate-200 border border-rose-500/25 transition-all active:scale-95 disabled:opacity-50 min-w-[2.5rem]"
+                title="3D-план по LiDAR-скану с iPhone (Apple RoomPlan, как в Airbnb)"
+            >
+                <span className="text-sm">📱</span>
+                <span className="hidden sm:inline text-xs font-bold text-rose-600 dark:text-rose-400">
+                    LiDAR 3D
+                </span>
+            </button>
+
+            <LiDARScanModal
+                isOpen={isLiDARModalOpen}
+                onClose={() => setIsLiDARModalOpen(false)}
+            />
+
+            <PlanLoadingOverlay
+                open={isLoading}
+                phase={loadPhase}
+                fileName={currentFile?.name}
+                fileSize={currentFile?.size}
+                previewUrl={previewUrl}
+                isReprocess={isReprocess}
+            />
+        </div>
     );
 };

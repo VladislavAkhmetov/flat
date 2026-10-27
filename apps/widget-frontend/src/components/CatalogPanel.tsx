@@ -49,19 +49,32 @@ const FurnitureIcon: React.FC<{ type: string, className?: string }> = ({ type, c
     return <svg {...props}><rect x="4" y="4" width="16" height="16" rx="2" /></svg>;
 };
 
-export const CatalogPanel: React.FC = () => {
+export const CatalogPanel: React.FC<{
+    /** Hide doors/windows — structure tools cover those. */
+    hideOpenings?: boolean;
+    /** Client: fewer categories / friendlier copy. */
+    visitorFriendly?: boolean;
+}> = ({ hideOpenings = true, visitorFriendly = false }) => {
     const activeCatalogId = useStore((state) => state.activeCatalogId);
     const setActiveCatalogId = useStore((state) => state.setActiveCatalogId);
+    const setEditorMode = useStore((state) => state.setEditorMode);
 
     // Group by category
     const grouped = FURNITURE_CATALOG.reduce((acc, item) => {
+        if (hideOpenings && item.category === 'opening') return acc;
         if (!acc[item.category]) acc[item.category] = [];
         acc[item.category].push(item);
         return acc;
     }, {} as Record<string, typeof FURNITURE_CATALOG>);
 
     const categories = Object.keys(grouped);
-    const [activeTab, setActiveTab] = React.useState(categories[0]);
+    const [activeTab, setActiveTab] = React.useState(categories[0] || 'furniture');
+
+    React.useEffect(() => {
+        if (!categories.includes(activeTab) && categories[0]) {
+            setActiveTab(categories[0]);
+        }
+    }, [categories, activeTab]);
 
     // Localization Map
     const translations: Record<string, string> = {
@@ -76,37 +89,52 @@ export const CatalogPanel: React.FC = () => {
         'Spawn Point': 'Точка спауна',
         'Double Bed': 'Кровать 2-сп',
         'Single Bed': 'Кровать 1-сп',
+        'Corner Sofa': 'Угловой диван',
         'Sofa 3-Seat': 'Диван 3-мест',
         'Sofa 2-Seat': 'Диван 2-мест',
         'Armchair': 'Кресло',
+        'Bedside Table': 'Тумба',
+        'Dining Chair': 'Стул',
+        'Office Chair': 'Кресло офис',
         'Dining Table': 'Стол обед.',
+        'Desk': 'Стол рабочий',
         'Office Desk': 'Стол рабочий',
         'Chair': 'Стул',
         'Wardrobe': 'Шкаф',
         'Bookshelf': 'Стеллаж',
         'TV Stand': 'Тумба ТВ',
         'TV': 'Телевизор',
+        'Kitchen 60cm': 'Модуль 60',
         'Kitchen Island': 'Остров',
         'Kitchen Cabinet': 'Шкаф кух.',
+        'Integrated Kitchen Set': 'Гарнитур',
+        'Refrigerator': 'Холод.',
         'Fridge': 'Холод.',
         'Stove': 'Плита',
+        'Kitchen Sink': 'Мойка',
         'Sink': 'Раковина',
         'Toilet': 'Унитаз',
         'Shower': 'Душ',
+        'Bath': 'Ванна',
         'Bathtub': 'Ванна',
+        'Washing Machine': 'Стиралка',
         'Door': 'Дверь',
-        'Window': 'Окно'
+        'Window': 'Окно',
+        'Panoramic Window': 'Панорама',
     };
 
     const t = (key: string) => translations[key] || key;
 
-    // Apply "Apple 2026" Aesthetics
-    // Floating Dock style: Horizontal scroll, glassmorphism, unified container
     return (
         <div className="flex flex-col gap-3 pointer-events-auto transform transition-all items-center">
 
             {/* Main Dock Container */}
-            <div className="bg-white/90 backdrop-blur-2xl rounded-[2rem] shadow-2xl border border-white/60 p-4 w-auto max-w-[90vw] flex flex-col gap-4 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50">
+            <div className={`bg-white/90 backdrop-blur-2xl rounded-[2rem] shadow-2xl border border-white/60 ${visitorFriendly ? 'p-3' : 'p-4'} w-auto max-w-[90vw] flex flex-col gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300 z-50`}>
+                {visitorFriendly && (
+                    <div className="text-center text-[10px] sm:text-xs text-gray-500 font-medium px-2">
+                        Выберите предмет и кликните по полу · R — повернуть
+                    </div>
+                )}
 
                 {/* Category Pills */}
                 <div className="flex gap-2 overflow-x-auto no-scrollbar px-1 pb-1 justify-center">
@@ -131,7 +159,14 @@ export const CatalogPanel: React.FC = () => {
                         return (
                             <button
                                 key={item.id}
-                                onClick={() => setActiveCatalogId(isActive ? null : item.id)}
+                                onClick={() => {
+                                    if (isActive) {
+                                        setActiveCatalogId(null);
+                                    } else {
+                                        setEditorMode('furniture');
+                                        setActiveCatalogId(item.id);
+                                    }
+                                }}
                                 className={`group flex flex-col items-center gap-2 min-w-[72px] transition-all duration-300 ${isActive ? 'scale-110' : 'hover:scale-105 opacity-80 hover:opacity-100'
                                     }`}
                             >

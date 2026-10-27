@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev -w apps/api-backend\" \"npm run dev -w apps/widget-frontend\" \"npm run dev -w apps/ai-service\" \"npm run dev -w apps/landing\"",
+    "dev": "concurrently \"npm run dev -w apps/api-backend\" \"npm run dev -w apps/widget-frontend\" \"npm run dev -w apps/ai-service\"",
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "turbo run lint"

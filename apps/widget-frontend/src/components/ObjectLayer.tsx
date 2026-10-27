@@ -53,17 +53,18 @@ const ObjectItem = React.memo(({
     const [hovered, setHovered] = useState(false);
     const [interactionMode, setInteractionMode] = useState<'move' | 'rotate' | 'scale'>('move');
 
-    // Dynamically traverse and enable sharp real-time shadows for all child meshes of the furniture model
+    // Shadows only in walk mode — orbital 3D stays light.
     useEffect(() => {
         if (furnitureRef.current) {
+            const enable = cameraMode === 'walk';
             furnitureRef.current.traverse((child) => {
                 if ((child as any).isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
+                    child.castShadow = enable;
+                    child.receiveShadow = enable;
                 }
             });
         }
-    });
+    }, [obj.catalogId, cameraMode]);
 
     useEffect(() => {
         if (!isActive) setInteractionMode('move');
@@ -554,6 +555,7 @@ const ObjectItem = React.memo(({
 export const ObjectLayer: React.FC = () => {
     const objects = useStore((state) => state.scene.objects);
     const editorMode = useStore((state) => state.editorMode);
+    const planReviewActive = useStore((state) => state.planReviewActive);
     const updateObject = useStore((state) => state.updateObject);
     const setIsDragging = useStore((state) => state.setIsDragging);
     const activeObjectId = useStore((state) => state.activeObjectId);
@@ -594,15 +596,20 @@ export const ObjectLayer: React.FC = () => {
         return () => window.removeEventListener('keydown', handleDown);
     }, [activeObjectId, editorMode, setActiveObjectId]);
 
+    // Structure phase: keep the plan clean — no furniture/spawn clutter over the PNG
+    const visibleObjects = planReviewActive
+        ? []
+        : objects;
+
     return (
         <group>
-            {objects.map(obj => (
+            {visibleObjects.map(obj => (
                 <ObjectItem
                     key={obj.id}
                     obj={obj}
                     isActive={activeObjectId === obj.id}
                     activeObjectId={activeObjectId}
-                    editorMode={editorMode}
+                    editorMode={planReviewActive ? 'walls' : editorMode}
                     setActiveObjectId={setActiveObjectId}
                     setIsDragging={setIsDragging}
                     updateObject={updateObject}

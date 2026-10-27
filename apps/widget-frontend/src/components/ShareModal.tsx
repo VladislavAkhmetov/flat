@@ -12,7 +12,6 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose }) => {
     const [shareUrl, setShareUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [copied, setCopied] = useState(false);
-    const scene = useStore((state) => state.scene);
 
     useEffect(() => {
         if (isOpen) {
@@ -26,30 +25,19 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose }) => {
     const saveAndGenerateLink = async () => {
         setIsSaving(true);
         try {
-            // Save Scene to get the shareToken
+            // Save Scene to get the shareToken (read once, no whole-scene subscription)
             const res = await fetch(`${API_URL}/scenes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: scene })
+                body: JSON.stringify({ data: useStore.getState().scene })
             });
 
             if (!res.ok) throw new Error('Failed to save scene');
             const { shareToken } = await res.json();
 
-            // The landing page runs on port 5174. In production, we'd use the current origin.
-            // For local development, we point to the landing page origin (usually 5174 or current parent's origin if embedded).
-            // Let's resolve the host: if we are embedded, the parent is the landing page.
-            // A safe fallback is to check if we are in an iframe and use document.referrer, or just use localhost:5174
-            let landingOrigin = 'http://localhost:5174';
-            try {
-                if (window.self !== window.top && document.referrer) {
-                    landingOrigin = new URL(document.referrer).origin;
-                }
-            } catch (e) {
-                console.error('Cannot access referrer origin, defaulting to localhost:5174');
-            }
-
-            const url = `${landingOrigin}/?s=${shareToken}`;
+            // Direct link to 3D client viewer
+            const widgetOrigin = window.location.origin;
+            const url = `${widgetOrigin}/client.html?s=${shareToken}`;
             setShareUrl(url);
         } catch (e) {
             console.error('Error sharing scene:', e);
@@ -72,8 +60,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose }) => {
         ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(shareUrl)}`
         : '';
 
-    const telegramShare = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent('Посмотри планировку моей будущей квартиры в ЖК Anniversary!')}`;
-    const whatsappShare = `https://api.whatsapp.com/send?text=${encodeURIComponent('Посмотри планировку моей будущей квартиры в ЖК Anniversary! ' + shareUrl)}`;
+    const telegramShare = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent('Посмотри интерактивную планировку квартиры в 3D!')}`;
+    const whatsappShare = `https://api.whatsapp.com/send?text=${encodeURIComponent('Посмотри интерактивную планировку квартиры в 3D! ' + shareUrl)}`;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">

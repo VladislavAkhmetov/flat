@@ -1,84 +1,97 @@
-# AI Service - Floor Plan Wall Detection
+# AI Service — Floor Plan Recognition
 
-AI microservice for automatic wall detection on floor plan images using pretrained deep learning models.
+FastAPI-микросервис: стены, двери/окна и мебель по растровому плану.
+**Только бесплатный / open-source стек** (без платных recognition API).
 
 ## Features
 
-- **Pretrained Model**: Uses CubiCasa5k-compatible architecture with ResNet34 encoder
-- **Auto-download Weights**: Automatically downloads pretrained weights from Google Drive
-- **Robust Fallback**: Falls back to OpenCV HoughLines if model fails
-- **Modern Architecture**: Built with FastAPI and segmentation-models-pytorch
-- **GPU Support**: CUDA-accelerated inference (tested on GTX 1050 Ti 4GB)
+- **Style router**: `cad_outline` / `marketing_filled` / `photo_messy`
+- **Каскад стен**:
+  - marketing/photo → **Mask2Former** (HF `phungpx/mask2former-swin-base-cubicassa`)
+  - CAD → YOLOv8-seg → CubiCasa5k U-Net
+  - fallback → OpenCV + auto-threshold
+- **Wall graph**: skeleton / medial-axis → одна осевая линия на стену (не двойные контуры)
+- **OCR комнат (RU)**: EasyOCR читает «Ванная / Кухня / Прихожая…» → тип комнаты → шаблон мебели
+- **Мебель и символы**: YOLOv8 + `SemanticLayoutPlanner` (с clamp в контур квартиры)
+- **Окна/двери**: seal gaps + детектор белых врезок в наружных стенах
+- **Единый масштаб**: downscale ≤1500px; `px_per_meter` по ширине дверей (~0.85 м)
+- **Content crop**: обрезка пустых полей перед детекцией
+- **Неблокирующий API**: CV/NN в `ThreadPoolExecutor`
 
 ## Installation
 
 ```powershell
-# Install dependencies
 py -m pip install -r requirements.txt
 ```
 
-## Usage
+При первом запуске Mask2Former скачает веса с Hugging Face (~400MB в кэш).
 
-### Start Server
+## Usage
 
 ```powershell
 py server.py
 ```
 
-Server runs on `http://localhost:5000`
+По умолчанию: `http://localhost:5000` (клиенты виджета задают URL через `VITE_AI_URL`).
 
-### API Endpoint
-
-**POST /process-plan**
-
-Upload a floor plan image and get detected walls.
+### POST `/process-plan`
 
 ```bash
 curl -X POST -F "file=@plan.png" http://localhost:5000/process-plan
 ```
 
-Response:
+Опционально: `threshold` (только ручной слайдер), `grayscale`, `contrast`.
+
+Пример ответа:
+
 ```json
 {
   "walls": [
-    {"start": {"x": 100, "y": 200}, "end": {"x": 500, "y": 200}},
-    ...
+    {"start": {"x": 100, "y": 200}, "end": {"x": 500, "y": 200}, "thickness": 0.25, "kind": "bearing"}
   ],
-  "image_width": 3250,
-  "image_height": 3215,
+  "furniture": [],
+  "image_width": 1500,
+  "image_height": 1200,
+  "method": "mask2former",
+  "style": "marketing_filled",
+  "px_per_meter": 42.5,
   "num_walls": 15
 }
 ```
 
+### GET `/health`
+
+Статус сервиса и загрузки моделей.
+
 ## Architecture
 
-- **Model**: U-Net with ResNet34 encoder
-- **Input Size**: 512x512 (auto-resized)
-- **Output Classes**: Background, Wall, Door, Window, Room
-- **Post-processing**: Morphological operations, contour extraction, angle snapping
+1. Decode → alpha blend → downscale → content crop  
+2. `detect_plan_style`  
+3. Wall cascade (Mask2Former / YOLO-seg / U-Net / OpenCV)  
+4. Skeleton → wall segments + topology/connectivity filters  
+5. Furniture YOLO → `estimate_px_per_meter` → planner  
+6. JSON  
 
-## Files
+## Key files
 
-- `server.py` - FastAPI server
-- `model.py` - Model architecture definitions
-- `inference.py` - Complete inference pipeline
-- `weights_manager.py` - Auto-download pretrained weights
-- `requirements.txt` - Python dependencies
+| File | Role |
+|------|------|
+| `server.py` | FastAPI, executor, cascade |
+| `style_router.py` | CAD vs marketing vs photo |
+| `mask2former_walls.py` | HF Mask2Former wall mask |
+| `wall_graph.py` | Skeleton → walls[] |
+| `inference.py` | U-Net / YOLO-seg |
+| `furniture_detection.py` | YOLO furniture |
+| `semantic_planner.py` | Rooms, openings, furniture |
 
 ## Testing
 
-Test weight download:
 ```powershell
-py weights_manager.py
-```
-
-Test model creation:
-```powershell
-py model.py
+py smoke_recognition.py path\to\plan.png
 ```
 
 ## Notes
 
-- First run will download ~100MB of pretrained weights
-- If CubiCasa5k weights fail, uses ImageNet-pretrained encoder
-- OpenCV fallback always available if AI fails
+- Без GPU Mask2Former заметно медленнее
+- Слайдер «Чувствительность» на фронте шлёт `threshold` только после ручного движения
+- CubiCasa U-Net веса могут скачаться при первом старте (~100MB)

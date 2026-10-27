@@ -2,56 +2,72 @@
 
 ## Описание проекта
 
-Flat Builder — это веб-виджет для интерактивного просмотра и редактирования планировок квартир в 2D и 3D. Продукт предназначен для встраивания на сайты застройщиков и агентств недвижимости: пользователь загружает растровый план квартиры, система автоматически распознаёт стены и расставляет мебель с помощью ИИ, после чего покупатель может интерактивно расставить мебель, обойти квартиру в режиме «от первого лица» и оставить заявку.
+Flat Builder — веб-виджет для интерактивного просмотра и редактирования планировок квартир в 2D и 3D. Продукт предназначен для встраивания на сайты застройщиков и агентств недвижимости: пользователь загружает растровый план квартиры, система автоматически распознаёт стены и расставляет мебель с помощью ИИ, после чего покупатель может интерактивно расставить мебель, обойти квартиру в режиме «от первого лица» и оставить заявку.
 
 ---
 
 ## Функционал
 
 ### Редактирование планировки
-- **Загрузка плана** — загрузка растрового изображения планировки (PNG/JPG, поддержка прозрачного фона), которое отображается как подложка в сцене.
-- **Автораспознавание стен (ИИ)** — после загрузки плана ИИ-сервис автоматически детектирует стены и возвращает их векторное представление.
-- **Ручное рисование стен** — режим рисования стен мышью с системой магнитного прилипания (snap): к сетке, к другим стенам, к углам 90°.
-- **Редактирование стен** — перемещение, удаление стен; изменение толщины и типа (несущая / перегородка).
-- **Двери и окна (Проёмы)** — добавление проёмов на стены с указанием ширины, высоты и высоты подоконника.
-- **Граф стен** — стены хранятся в виде графа узлов (Node-Edge архитектура): узлы — это углы, рёбра — сами стены. Это позволяет корректно обрабатывать примыкания и T-образные соединения.
+- **Загрузка плана** — PNG/JPG (в т.ч. с прозрачным фоном); изображение становится подложкой в сцене.
+- **Автораспознавание (ИИ)** — детекция стен, дверей/окон и мебели; масштаб калибруется по ширине дверей (`px_per_meter`), а не жёстко «10 м на картинку».
+- **Ручное рисование стен** — snap к сетке, стенам и углам 90°; визуальный фидбек (курсор, фантомная линия, размеры) обновляется императивно без React re-render на каждый `pointermove`.
+- **Редактирование стен** — перемещение узлов, удаление, толщина и тип (несущая / перегородка).
+- **Двери и окна** — проёмы на рёбрах графа; элементы каталога категории `opening` ставятся через `addOpening`, а не как мебель.
+- **Граф стен** — Node–Edge: узлы — углы, рёбра — стены (примыкания и T-соединения).
 
 ### Расстановка мебели
-- **Каталог мебели** — боковая панель с предметами мебели (диван, кровать, стол, стул, шкаф и др.).
-- **Drag & drop** — размещение мебели в 3D сцене перетаскиванием из каталога.
-- **Привязка к стене** — мебель может автоматически прилипать к ближайшей стене.
-- **Трансформация** — вращение, масштабирование, перемещение объектов.
-- **Свойства объекта** — панель редактирования выбранного объекта.
+- **Каталог** — боковая панель (диван, кровать, стол, стул, шкаф и др.).
+- **Размещение** — клик/перетаскивание в сцену с snap к стенам графа (`nodes`/`edges`) и legacy-стенам.
+- **Трансформация** — вращение, масштаб, перемещение; панель свойств выбранного объекта.
 
 ### Режимы просмотра
-- **2D (вид сверху)** — ортографическая камера, удобна для редактирования плана.
-- **3D (орбитальная камера)** — перспективный вид, возможность облёта сцены.
-- **Вид от первого лица (Walk mode)** — управление WASD + мышь, иммерсивный обход квартиры.
+- **2D** — ортографическая камера для редактирования плана.
+- **3D** — орбитальный облёт; `Environment` (apartment), hemisphere + directional light, `ContactShadows` только в этом режиме.
+- **Walk** — WASD + мышь, FOV 60°, скорость ~2 м/с (Shift — бег), коллизии со стенами с проходом через дверные проёмы, прицел-перекрестие.
 
 ### Сохранение и шаринг
-- **Сохранение сцены** — сцена сохраняется на сервере и возвращается уникальный токен (`shareToken`).
-- **Загрузка по токену** — восстановление полного состояния сцены по URL с токеном.
-- **Форма заявки (Лид)** — форма с именем, телефоном и комментарием; данные сохраняются в БД и могут быть переданы в CRM (Bitrix24 через вебхук).
+- **Сохранение сцены** — сервер возвращает `shareToken`.
+- **Загрузка по токену** — полное восстановление сцены по URL.
+- **Лид** — имя, телефон, комментарий; `sceneId` опционален (заявка с лендинга/пресета не требует FK на сцену). Опционально — вебхук Bitrix24.
+- **Undo/Redo** — `structuredClone`, лимит 50 шагов; AI-импорт батчится в одну запись истории.
 
 ---
 
 ## Архитектура
 
-Проект организован как **монорепозиторий** (`npm workspaces` + `turbo`). Состоит из трёх приложений и одной общей библиотеки.
+Монорепозиторий: **npm workspaces** + **Turborepo** (`turbo.json`).
 
 ```
 flat/
 ├── apps/
-│   ├── widget-frontend/   # React/Three.js фронтенд (порт 5173)
-│   ├── api-backend/       # Fastify REST API + Prisma ORM (порт 3000)
-│   └── ai-service/        # Python/FastAPI ИИ-микросервис (порт 5000)
+│   ├── widget-frontend/   # React/Three.js виджет (порт 5173)
+│   ├── api-backend/       # Fastify + Prisma (порт 3000)
+│   └── ai-service/        # FastAPI / PyTorch / YOLO (порт 5000)
 ├── packages/
-│   └── shared/            # Общие TypeScript-типы для front и back
+│   └── shared/            # Общие TypeScript-типы
 ├── infra/
-│   └── docker-compose.yml # PostgreSQL 15 для локальной разработки
-├── package.json            # Корневой workspace
-└── ARCHITECTURE.md         # Этот файл
+│   └── docker-compose.yml # PostgreSQL 15
+├── turbo.json             # pipeline: build / test / lint
+├── .env.example           # DATABASE_URL, PUBLIC_URL, VITE_* URL
+├── package.json
+└── ARCHITECTURE.md
 ```
+
+```
+┌──────────────────┐     ┌─────────────┐
+│  widget-frontend │────▶│ api-backend │
+│      :5173       │     │    :3000    │
+└────────┬─────────┘     └──────┬──────┘
+         │                      │
+         ▼                      ▼
+  ┌─────────────┐        ┌────────────┐
+  │ ai-service  │        │ PostgreSQL │
+  │    :5000    │        │    :5432   │
+  └─────────────┘        └────────────┘
+```
+
+URL сервисов на клиентах задаются через env (`VITE_API_URL`, `VITE_AI_URL`, `VITE_WIDGET_URL`); на бэкенде — `PUBLIC_URL` для ссылок на загруженные файлы. Fallback в коде — localhost для локальной разработки.
 
 ---
 
@@ -59,19 +75,17 @@ flat/
 
 ### 1. `packages/shared` — Общие типы
 
-Используется как фронтендом, так и бэкендом. Содержит все ключевые интерфейсы данных.
-
 | Тип               | Описание                                                              |
 |-------------------|-----------------------------------------------------------------------|
 | `SceneData`       | Главная структура сцены: стены, узлы, рёбра, проёмы, мебель, камера |
-| `Wall`            | Устаревший формат стены (для обратной совместимости): точки A и B    |
-| `WallNode`        | Узел графа стен (угол): координаты X, Y                              |
-| `WallEdge`        | Ребро графа стен: два узла + толщина, высота, тип                    |
-| `Opening`         | Проём (дверь / окно) на стене: позиция t ∈ [0,1], размеры           |
-| `FurnitureObject` | Объект мебели: catalogId, позиция, поворот, масштаб                  |
-| `MaterialMap`     | Маппинг материалов: пол и стены                                      |
-| `CameraState`     | Состояние камеры: режим (2d/3d/walk), позиция, цель, FOV             |
-| `LeadPayload`     | Данные формы заявки: имя, телефон, комментарий, ID сцены             |
+| `Wall`            | Legacy-стена (точки A/B) для обратной совместимости                  |
+| `WallNode`        | Узел графа (угол)                                                    |
+| `WallEdge`        | Ребро: два узла + толщина, высота, тип                               |
+| `Opening`         | Проём на стене: `t ∈ [0,1]`, размеры                                 |
+| `FurnitureObject` | Мебель: catalogId, позиция, поворот, масштаб                         |
+| `MaterialMap`     | Материалы пола и стен                                                |
+| `CameraState`     | Режим (2d/3d/walk), позиция, цель, FOV                               |
+| `LeadPayload`     | Заявка: имя, телефон, комментарий, опциональный ID сцены             |
 
 ---
 
@@ -79,73 +93,64 @@ flat/
 
 **Стек**: React 18, TypeScript, Vite, Three.js, `@react-three/fiber`, `@react-three/drei`, Zustand, TailwindCSS, Lucide Icons.
 
-#### Ключевые компоненты
+#### Ключевые файлы
 
 | Файл                          | Назначение                                                              |
 |-------------------------------|-------------------------------------------------------------------------|
-| `src/main.tsx`                | Точка входа, рендер `<App/>`                                            |
-| `src/App.tsx`                 | Корневой компонент: компоновка UI и 3D Canvas                           |
-| `src/store.ts`                | Глобальный стор Zustand: стены, узлы, мебель, режимы редактора         |
-| `src/catalog.ts`              | Каталог мебели: список объектов с геометрией и мета-данными            |
-| `components/SceneContainer`   | 3D Canvas с освещением, тенями, OrbitControls / FirstPersonControls    |
-| `components/WallLayer`        | 3D рендер стен по данным из стора (ThreeJS Geometry)                   |
-| `components/WallGraph`        | Граф стен: рендер узлов и рёбер для визуальной отладки                 |
-| `components/WallBuilder`      | Режим рисования стен мышью с раймкастингом на плоскость пола           |
-| `components/WallEditor`       | Режим выделения и перемещения стен                                      |
-| `components/FurniturePlacer`  | Размещение мебели из каталога в 3D сцене                               |
-| `components/FurniturePrimitives` | 3D примитивы для визуализации мебели (Box, Cylinder и т.д.)         |
-| `components/ObjectLayer`      | Рендер всех объектов мебели в сцене                                     |
-| `components/PlanUnderlay`     | Отображение загруженного растрового плана как текстуры на полу          |
-| `components/PlanUploader`     | Компонент загрузки PNG/JPG плана (с отправкой на AI и backend)         |
-| `components/CatalogPanel`     | Боковая панель каталога мебели                                          |
-| `components/EditorToolbar`    | Верхняя панель инструментов: переключение режимов                       |
-| `components/FirstPersonController` | Управление камерой в режиме Walk (WASD + мышь + pointer lock)    |
-| `components/LeadForm`         | Форма заявки пользователя                                               |
-| `components/ObjectProperties` | Панель свойств выбранного объекта мебели                               |
-| `components/WallProperties`   | Панель свойств выбранной стены                                          |
-| `components/OpeningProperties`| Панель свойств выбранного проёма                                        |
-| `components/OpacitySlider`    | Слайдер прозрачности для скрытия подложки/стен                         |
-| `hooks/useSnapSystem`         | Хук системы привязки: магнит к сетке, стенам, углам                   |
+| `src/store.ts`                | Zustand: сцена, режимы, undo/redo (`structuredClone`, лимит 50, batch) |
+| `src/catalog.ts`              | Каталог мебели и проёмов                                               |
+| `components/SceneContainer`   | Canvas, освещение, Environment, камеры, ContactShadows (только 3d)     |
+| `components/WallGraph`        | Рёбра/узлы; Line2 с dispose; Door3D от пола (y=0)                      |
+| `components/WallEditor`       | Рисование/проёмы: snap + phantom через refs/`useFrame`                 |
+| `components/FurniturePlacer`  | Snap к graph walls; openings → `addOpening`                            |
+| `components/ObjectLayer`      | Рендер мебели                                                          |
+| `components/PlanUploader`     | Upload → AI (`VITE_AI_URL`) → масштаб по `px_per_meter` → store        |
+| `components/FirstPersonController` | Walk: скорость, Shift-бег, коллизии + двери                       |
+| `components/ShareModal`       | Шаринг; прямая ссылка на клиентский 3D-просмотр (`client.html`)                     |
+| `components/AIRenderModal`    | AI-рендер превью; `VITE_API_URL`                                       |
+| `hooks/useSnapSystem`         | `computeSnap` + хук привязки                                           |
 
-#### Поток данных (фронтенд)
+#### Поток данных
 
 ```
 PlanUploader
-  └─→ POST /api/upload (backend)   ← загрузка изображения
-  └─→ POST /process-plan (ai)      ← распознавание стен
-  └─→ store: setWalls(), setNodes(), setEdges()
-      └─→ WallLayer, WallGraph     ← рендер результата
-          └─→ WallBuilder / WallEditor ← ручное редактирование
-              └─→ POST /api/scenes  ← сохранение
-                  └─→ POST /api/leads ← заявка
+  └─→ POST {VITE_API_URL}/upload
+  └─→ POST {VITE_AI_URL}/process-plan  → walls, furniture, px_per_meter
+  └─→ beginHistoryBatch → setNodes/Edges/Objects → endHistoryBatch
+      └─→ WallGraph / ObjectLayer
+          └─→ POST {VITE_API_URL}/scenes | /leads
 ```
+
+#### Производительность (hot path)
+- Узкие Zustand-селекторы (не подписываться на весь `scene`).
+- `WallEditor` / drag-фидбек — refs + `useFrame`, без `setState` на каждый move.
+- `EdgeLine`: геометрия/материалы в `useMemo` + `dispose` при размонтировании.
+- Тени: `castShadow` только у directional light.
 
 ---
 
 ### 3. `apps/api-backend` — REST API
 
-**Стек**: Node.js, TypeScript, Fastify 4, `@fastify/multipart`, `@fastify/static`, `@fastify/cors`, Prisma ORM, PostgreSQL, UUID.
+**Стек**: Node.js, TypeScript, Fastify 4, multipart/static/cors, Prisma, PostgreSQL.
 
 **Порт**: `3000`
 
-#### Эндпоинты
+| Метод | Путь                     | Описание                                                     |
+|-------|--------------------------|--------------------------------------------------------------|
+| GET   | `/health`                | Healthcheck                                                  |
+| POST  | `/api/upload`            | Загрузка изображения; URL = `PUBLIC_URL` или host запроса    |
+| GET   | `/api/uploads/:filename` | Отдача файлов                                                |
+| POST  | `/api/scenes`            | Сохранение `SceneData` → `sceneId` + token                   |
+| GET   | `/api/scenes/:token`     | Загрузка сцены по токену                                     |
+| POST  | `/api/leads`             | Заявка; `sceneId` опционален; опционально Bitrix24           |
 
-| Метод | Путь                    | Описание                                                     |
-|-------|-------------------------|--------------------------------------------------------------|
-| GET   | `/health`               | Проверка работоспособности сервера                           |
-| POST  | `/api/upload`           | Загрузка изображения планировки, возвращает URL              |
-| GET   | `/api/uploads/:filename`| Ручная отдача загруженных файлов (fallback для static)       |
-| POST  | `/api/scenes`           | Сохранение сцены (SceneData), возвращает `sceneId` и `token` |
-| GET   | `/api/scenes/:token`    | Загрузка сцены по токену                                     |
-| POST  | `/api/leads`            | Создание заявки, опционально — отправка вебхука в Bitrix24   |
-
-#### Схема БД (Prisma, PostgreSQL)
+#### Схема БД (фрагмент)
 
 ```prisma
 model Scene {
   id        String   @id @default(uuid())
-  token     String   @unique          // 8-символьный токен для шаринга
-  data      Json                      // Полный SceneData JSON
+  token     String   @unique
+  data      Json
   createdAt DateTime @default(now())
   leads     Lead[]
 }
@@ -155,8 +160,8 @@ model Lead {
   name      String
   phone     String
   comment   String?
-  sceneId   String
-  scene     Scene    @relation(...)
+  sceneId   String?          // опционально — лиды с лендинга/пресетов
+  scene     Scene?   @relation(...)
   createdAt DateTime @default(now())
 }
 
@@ -170,85 +175,78 @@ model Event {
 
 ---
 
-### 4. `apps/ai-service` — ИИ Микросервис
+### 4. `apps/ai-service` — ИИ-микросервис
 
-**Стек**: Python 3.12, FastAPI, Uvicorn, PyTorch (CUDA), `segmentation-models-pytorch`, YOLOv8 (Ultralytics), OpenCV, Pillow, NumPy, scikit-learn.
+**Стек**: Python 3.12, FastAPI, Uvicorn, PyTorch (CUDA), SMP, YOLOv8, OpenCV, NumPy.
 
 **Порт**: `5000`
 
-#### Эндпоинты
+Синхронный CV/NN пайплайн выполняется в `ThreadPoolExecutor` (`run_in_executor`), чтобы не блокировать event loop FastAPI. Лимит загрузки ~20 МБ; длинная сторона изображения ограничивается `MAX_IMAGE_DIM = 1500` **один раз** в начале — все модули (YOLO, U-Net, OpenCV, planner) работают в одной системе координат.
 
-| Метод | Путь             | Описание                                                    |
-|-------|------------------|-------------------------------------------------------------|
-| GET   | `/health`        | Статус сервиса и флаг загрузки модели                       |
-| POST  | `/process-plan`  | Обработка изображения плана: детекция стен + мебели         |
+| Метод | Путь             | Описание                                            |
+|-------|------------------|-----------------------------------------------------|
+| GET   | `/health`        | Статус и флаг загрузки модели                       |
+| POST  | `/process-plan`  | Стены + мебель/проёмы + `px_per_meter`              |
 
-#### Пайплайн обработки плана (`POST /process-plan`)
+#### Пайплайн `POST /process-plan`
 
 ```
-Загрузка изображения
-  └─→ Предобработка
-       ├─ Удаление альфа-канала (белый фон)
-       ├─ Grayscale Color Burn (опционально)
-       └─ CLAHE контраст (опционально)
-  └─→ Детекция насыщенности (is_colored?)
-  └─→ Определение стен (каскад методов):
-       1. YOLOv8-seg (weights/yolov8_walls_seg.pt) — если не цветной план и веса есть
-       2. U-Net ResNet34 / CubiCasa5k (cubicasa5k_model.pth) — если не цветной план
-       3. OpenCV Fallback (двухэтапная морфология) — всегда как запасной вариант
-  └─→ Постобработка стен:
-       ├─ Фильтрация дубликатов (filter_duplicate_walls)
-       └─ Слияние коллинеарных стен (merge_collinear_walls)
-  └─→ Детекция мебели и символов (YOLOv8 marketing_furniture.pt)
-  └─→ Семантическое планирование (SemanticLayoutPlanner)
-       ├─ Классификация комнат (спальня / гостиная / кухня / ванная / коридор)
-       ├─ Расстановка дверей и окон (openings)
-       └─ Расстановка мебели по типу комнаты (furniture)
-  └─→ JSON-ответ: { walls, furniture, image_width, image_height, method }
+Загрузка + проверка размера
+  └─→ Downscale до MAX_IMAGE_DIM (единая СК)
+  └─→ Векторизованное снятие альфы → белый фон
+  └─→ CLAHE / предобработка (по типу плана)
+  └─→ is_colored?
+  └─→ Стены (каскад):
+       1. YOLOv8-seg (если есть веса, не цветной)
+       2. U-Net ResNet34 / CubiCasa5k (не цветной)
+       3. OpenCV fallback (морфология + контуры/Hough)
+  └─→ filter_duplicate_walls / merge_collinear_walls
+  └─→ YOLO furniture (порог дверей/окон ≥ 0.18)
+  └─→ estimate_px_per_meter (по ширине door ≈ 0.85 м; иначе max(h,w)/10)
+  └─→ SemanticLayoutPlanner(h, w, px_per_meter)
+       ├─ комнаты, openings (snap к стенам без жёсткого отсева по ориентации)
+       └─ мебель по типу комнаты / детекциям
+  └─→ JSON: { walls, furniture, image_width, image_height, method, px_per_meter }
 ```
 
 #### Модели и веса
 
-| Файл                                   | Назначение                                     |
-|----------------------------------------|------------------------------------------------|
-| `weights/cubicasa5k_model.pth`         | U-Net (ResNet34) для сегментации стен CAD-планов |
-| `weights/marketing_furniture.pt`       | YOLOv8 детектор мебели и символов (обучен)     |
-| `weights/yolov8_walls_seg.pt`          | YOLOv8-seg для стен (опционально, не включён)  |
-| `weights/architect_furniture.pt`       | Запасная/тренировочная версия детектора         |
-| `yolov8n.pt`                           | Базовая YOLOv8 nano (для тренировки)           |
+| Файл                                   | Назначение                                       |
+|----------------------------------------|--------------------------------------------------|
+| `weights/cubicasa5k_model.pth`         | U-Net (ResNet34) сегментация стен CAD            |
+| `weights/marketing_furniture.pt`       | YOLOv8 мебель и символы                          |
+| `weights/yolov8_walls_seg.pt`          | YOLOv8-seg стен (опционально)                    |
+| `weights/architect_furniture.pt`       | Запасной детектор                                |
+
+Нормализация U-Net (`mean`/`std`) всегда на `self.device` (исправлен рассинхрон CPU/CUDA, из‑за которого пайплайн молча уходил в OpenCV).
 
 #### Классы детектора мебели (YOLOv8)
 
-| ID | Класс    | Тип объекта      |
-|----|----------|------------------|
-| 0  | `bathtub`| Ванна            |
-| 1  | `bed`    | Кровать          |
-| 2  | `door1`  | Дверь (тип 1)    |
-| 3  | `desk`   | Рабочий стол     |
-| 4  | `sink1`  | Раковина (тип 1) |
-| 5  | `sink2`  | Раковина (тип 2) |
-| 6  | `sink3`  | Раковина (тип 3) |
-| 7  | `sink4`  | Раковина (тип 4) |
-| 8  | `sofa1`  | Диван            |
-| 9  | `toilet` | Унитаз           |
-| 10 | `table1` | Стол (тип 1)     |
-| 11 | `table2` | Стол (тип 2)     |
-| 14 | `window1`| Окно             |
+| ID | Класс     | Объект        |
+|----|-----------|---------------|
+| 0  | `bathtub` | Ванна         |
+| 1  | `bed`     | Кровать       |
+| 2  | `door1`   | Дверь         |
+| 3  | `desk`    | Стол          |
+| 4–7| `sink*`   | Раковины      |
+| 8  | `sofa1`   | Диван         |
+| 9  | `toilet`  | Унитаз        |
+| 10–11 | `table*` | Столы       |
+| 14 | `window1` | Окно          |
 
 ---
 
 ## Инфраструктура
 
-### Docker (локальная разработка)
+### Docker
 
-`infra/docker-compose.yml` запускает только базу данных PostgreSQL:
+`infra/docker-compose.yml` — только PostgreSQL 15:
 
 ```yaml
 services:
   postgres:
     image: postgres:15-alpine
-    ports:
-      - "5432:5432"
+    ports: ["5432:5432"]
     environment:
       POSTGRES_USER: flat_user
       POSTGRES_PASSWORD: flat_password
@@ -257,14 +255,22 @@ services:
 
 ### Переменные окружения
 
-Файл `.env` (в корне и в `apps/api-backend`):
+См. корневой `.env.example`:
 
 ```env
 DATABASE_URL="postgresql://flat_user:flat_password@localhost:5432/flat_db?schema=public"
 BITRIX_WEBHOOK_URL="https://your-domain.bitrix24.com/rest/1/token/crm.lead.add"
-STORAGE_BUCKET="flat-widget-assets"
-YC_SERVICE_ACCOUNT_ID="your-sa-id"
+PUBLIC_URL="http://localhost:3000"
+
+# Vite-приложения (apps/widget-frontend/.env, apps/landing/.env)
+VITE_API_URL="http://localhost:3000/api"
+VITE_AI_URL="http://localhost:5000"
+VITE_WIDGET_URL="http://localhost:5173"
 ```
+
+### Turborepo
+
+`turbo.json`: задачи `build` (outputs `dist/**`, dependsOn `^build`), `test`, `lint`. Корневые скрипты: `npm run build|test|lint` → `turbo run …`.
 
 ---
 
@@ -272,101 +278,70 @@ YC_SERVICE_ACCOUNT_ID="your-sa-id"
 
 ### Требования
 
-- **Node.js** >= 18 (проверено на v22.11.0)
-- **Python** >= 3.10 (проверено на 3.12.2)
-- **CUDA** >= 11.x (рекомендуется, опционально — работает на CPU)
-- **Docker Desktop** — для запуска PostgreSQL локально
-- **npm** >= 9
+- Node.js ≥ 18, npm ≥ 9
+- Python ≥ 3.10 (проверено на 3.12)
+- CUDA ≥ 11.x (опционально)
+- Docker Desktop — PostgreSQL локально
 
 ### 1. Первый запуск
 
 ```powershell
-# 1. Установить Node.js-зависимости (все workspaces)
 npm install
 
-# 2. Установить Python-зависимости (в папке ai-service)
 cd apps/ai-service
 py -m pip install -r requirements.txt
 cd ../..
 
-# 3. Запустить PostgreSQL через Docker
 docker compose -f infra/docker-compose.yml up -d
 
-# 4. Применить миграции базы данных
 npm run prisma:migrate -w apps/api-backend
-
-# (или вручную)
-cd apps/api-backend
-npx prisma migrate dev
-cd ../..
+# или: cd apps/api-backend; npx prisma migrate dev
 ```
 
-### 2. Запуск всех сервисов (dev-режим)
+Скопируйте `.env.example` → `.env` (корень / backend) и при необходимости `apps/*/ .env` для Vite.
+
+### 2. Dev (все сервисы)
 
 ```powershell
 npm run dev
 ```
 
-Эта команда запускает через `concurrently`:
-- `[0]` **api-backend** — `ts-node-dev src/app.ts` → http://localhost:3000
-- `[1]` **widget-frontend** — `vite` → http://localhost:5173
-- `[2]` **ai-service** — `python server.py` → http://localhost:5000
+Через `concurrently`:
+- `[0]` api-backend → http://localhost:3000
+- `[1]` widget-frontend → http://localhost:5173
+- `[2]` ai-service → http://localhost:5000
 
-### 3. Запуск сервисов по отдельности
+### 3. По отдельности
 
 ```powershell
-# Только фронтенд
 npm run dev -w apps/widget-frontend
-
-# Только бэкенд
 npm run dev -w apps/api-backend
-
-# Только ИИ-сервис (из папки ai-service)
-cd apps/ai-service
-py server.py
+cd apps/ai-service; py server.py
 ```
 
-### 4. Сборка для продакшена
+### 4. Сборка
 
 ```powershell
-npm run build
+npm run build   # turbo run build
 ```
 
 ### 5. Деплой
 
-Используется скрипт `deploy.ps1` в корне проекта (Yandex Cloud / Docker).
+Скрипт `deploy.ps1` (Yandex Cloud / Docker).
 
 ---
 
 ## Тестирование ИИ-сервиса
 
-### Проверка работоспособности
-
 ```powershell
-# Проверить статус
 Invoke-RestMethod http://localhost:5000/health
 
-# Загрузить тестовый план
 curl -X POST -F "file=@test_flat.png" http://localhost:5000/process-plan
 ```
 
-### Тестовые скрипты (в `apps/ai-service`)
+Ответ включает `walls`, `furniture`, `image_width`, `image_height`, `method`, `px_per_meter`.
 
-```powershell
-cd apps/ai-service
-
-# Проверить подключение к API
-py test_api.py
-
-# Проверить детектор мебели
-py test_furniture.py
-
-# Проверить YOLO
-py test_yolo.py
-
-# Отладка пайплайна
-py debug_ai.py
-```
+Тестовый CLI-скрипт: `apps/ai-service/smoke_recognition.py`.
 
 ---
 
@@ -375,64 +350,61 @@ py debug_ai.py
 ```typescript
 interface SceneData {
   schemaVersion: "1.0";
-
-  // Устаревшее (backward compat)
-  walls: Wall[];
-
-  // Граф стен (актуальное)
-  nodes: WallNode[];           // Угловые точки стен
-  edges: WallEdge[];           // Стены между узлами
-
-  openings: Opening[];         // Двери и окна
-  objects: FurnitureObject[];  // Мебель
-  materials: MaterialMap;      // Материалы пола и стен
-  camera: CameraState;         // Состояние камеры
-  constraints?: Constraints;   // Стояки, зоны запрета застройки
-  planImage?: string | { url, width, height } | null; // Подложка-план
+  walls: Wall[];                 // legacy
+  nodes: WallNode[];
+  edges: WallEdge[];
+  openings: Opening[];
+  objects: FurnitureObject[];
+  materials: MaterialMap;
+  camera: CameraState;
+  constraints?: Constraints;
+  planImage?: string | { url, width, height } | null;
 }
 ```
+
+Масштаб при импорте из AI: `meters = pixels / px_per_meter` (поле ответа AI); fallback — `max(width, height) / 10`.
 
 ---
 
 ## Известные особенности и ограничения
 
-- **Цветные планы**: Нейросетевые модели (U-Net, YOLO-walls) обучены на CAD-чертежах и плохо работают с цветными маркетинговыми планами. Для цветных планов автоматически используется OpenCV-фолбэк.
-- **Мебель**: Если детектор мебели не находит предметов, `SemanticLayoutPlanner` генерирует мебель автоматически на основе площади и типа комнаты.
-- **PostgreSQL**: Для локальной разработки необходим запущенный Docker с контейнером `flat_postgres` (или любой другой PostgreSQL на порту 5432 с указанными credentials).
-- **CUDA**: Ускорение GPU используется автоматически если CUDA доступна. Без GPU инференс замедляется в 5–10 раз.
-- **Веса модели YOLO walls**: Файл `weights/yolov8_walls_seg.pt` не включён в репозиторий. При его отсутствии wall-детекция выполняется через U-Net или OpenCV.
+- **Цветные планы**: U-Net / YOLO-walls заточены под CAD; для цветных маркетинговых планов — OpenCV-фолбэк.
+- **Мебель**: при слабой детекции `SemanticLayoutPlanner` дополняет расстановку по площади и типу комнаты.
+- **Координаты**: всё после первого downscale — в пикселях уменьшенного изображения; фронт масштабирует через `px_per_meter`.
+- **PostgreSQL**: нужен контейнер/`DATABASE_URL` на :5432.
+- **CUDA**: без GPU инференс заметно медленнее; устройство тензоров нормализации U-Net должно совпадать с устройством модели.
+- **Веса YOLO walls**: `yolov8_walls_seg.pt` может отсутствовать в репозитории — тогда U-Net или OpenCV.
+- **Бандл виджета**: production-чанк ~1.3 MB — кандидат на code-splitting (P2).
 
 ---
 
 ## Разработка
 
-### Добавление новой мебели в каталог
+### Новая мебель в каталог
 
-Редактируйте файл `apps/widget-frontend/src/catalog.ts`:
+`apps/widget-frontend/src/catalog.ts`:
 
 ```typescript
 {
   id: 'my-item',
   name: 'Название',
-  category: 'living',           // bedroom / bathroom / kitchen / living
-  geometry: { w: 1.0, d: 0.5, h: 0.8 }, // размеры в метрах
+  category: 'living', // bedroom | bathroom | kitchen | living | opening
+  geometry: { w: 1.0, d: 0.5, h: 0.8 },
   color: '#8B7355',
 }
 ```
 
-### Добавление нового API-эндпоинта (бэкенд)
+### Новый API-эндпоинт
 
-Добавьте handler в `apps/api-backend/src/app.ts`:
+`apps/api-backend/src/app.ts`:
 
 ```typescript
-server.get('/api/my-route', async (request, reply) => {
-  return { data: 'hello' };
-});
+server.get('/api/my-route', async () => ({ data: 'hello' }));
 ```
 
-### Добавление нового класса мебели (ИИ)
+### Новый класс мебели (ИИ)
 
-1. Добавьте изображения в `apps/ai-service/data/`.
-2. Обновите `dataset.py` с новым классом.
-3. Запустите `train_furniture.py` для дообучения.
-4. Обновите маппинг классов в `furniture_detection.py` и `semantic_planner.py`.
+1. Данные в `apps/ai-service/data/`.
+2. Класс в `dataset.py`.
+3. `train_furniture.py`.
+4. Маппинг в `furniture_detection.py` и `semantic_planner.py`.

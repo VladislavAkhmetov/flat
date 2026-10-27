@@ -2,6 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --flat-primary: #f59e0b;
+  --flat-primary-hover: #d97706;
+  --flat-primary-rgb: 245, 158, 11;
+}
+
 canvas {
   touch-action: none;
 }
+
+.flat-btn-primary {
+  background-color: var(--flat-primary);
+  color: #0f172a;
+}
+.flat-btn-primary:hover {
+  background-color: var(--flat-primary-hover);
+}
+
+.flat-text-primary {
+  color: var(--flat-primary);
+}
+
+.flat-border-primary {
+  border-color: var(--flat-primary);
+}
+
+.flat-bg-primary-subtle {
+  background-color: rgba(var(--flat-primary-rgb), 0.12);
+}
+
+.flat-border-primary-subtle {
+  border-color: rgba(var(--flat-primary-rgb), 0.3);
+}
+
+.flat-shadow-primary {
+  box-shadow: 0 10px 25px -5px rgba(var(--flat-primary-rgb), 0.25);
+}
+

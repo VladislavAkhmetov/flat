@@ -171,13 +171,6 @@ class FurnitureDetector:
             )
             # Convert single channel to 3 channels (BGR) for YOLOv8
             image_bgr = cv2.cvtColor(clean_cad, cv2.COLOR_GRAY2BGR)
-            
-            # Save preprocessed debug image to analyze quality
-            try:
-                cv2.imwrite('debug_furniture_prep.png', clean_cad)
-                logger.info("✓ Saved preprocessed outline to debug_furniture_prep.png")
-            except Exception as e:
-                logger.warning(f"Could not save debug image: {e}")
         else:
             logger.info("📐 Using original BGR color image directly (YOLO expects standard BGR array).")
             image_bgr = image
@@ -205,11 +198,20 @@ class FurnitureDetector:
                 else:
                     catalog_id = resolve_catalog_id_from_name(class_name)
                 
-                # Filter by confidence and supported classes
-                # Lower threshold to 0.08 for doors and windows to guarantee entrance door and window snapping,
-                # while keeping 0.22 for standard furniture items to suppress clutter.
-                min_conf = 0.08 if (catalog_id and ('door' in catalog_id or 'window' in catalog_id)) else 0.22
-                if conf < min_conf or catalog_id is None:
+                # Confidence gates — marketing YOLO hallucinates sinks on chairs/hangers/text.
+                if catalog_id is None:
+                    continue
+                if 'window' in catalog_id:
+                    min_conf = 0.45
+                elif 'door' in catalog_id:
+                    min_conf = 0.45
+                elif catalog_id in ('sink', 'sink_kitchen'):
+                    min_conf = 0.70
+                elif catalog_id in ('table_dining', 'armchair', 'chair_dining'):
+                    min_conf = 0.50
+                else:
+                    min_conf = 0.35
+                if conf < min_conf:
                     continue
                 
                 # Get coordinates

@@ -1,11 +1,9 @@
-import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
-import { ThreeEvent, useThree, useFrame } from '@react-three/fiber';
-import { useDrag } from '@use-gesture/react';
-import { Vector3 } from 'three';
+import { ThreeEvent, useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
 import { Html } from '@react-three/drei';
-import { Line2, LineMaterial, LineGeometry } from 'three-stdlib';
-import { useSnapSystem, findNearestEdge } from '../hooks/useSnapSystem';
+import { computeSnap, findNearestEdge, findNearestNode, SnapResult } from '../hooks/useSnapSystem';
 
 /**
  * WallEditor - Graph-based Wall Drawing Tool
@@ -15,59 +13,53 @@ import { useSnapSystem, findNearestEdge } from '../hooks/useSnapSystem';
  * - Phantom (dashed) line preview before committing
  * - Snapping to grid, nodes, and axis
  * - Auto-split when ending on existing wall segment
+ * 
+ * Performance: cursor / phantom-line / ghost feedback is driven entirely through
+ * refs and useFrame - pointermove does NOT touch React state, so the graph is
+ * never re-rendered while just moving the mouse.
  */
 export const WallEditor: React.FC = () => {
     const editorMode = useStore((state) => state.editorMode);
+    const wallToolMode = useStore((state) => state.wallToolMode);
     const nodes = useStore((state) => state.scene.nodes);
     const edges = useStore((state) => state.scene.edges);
     const addNode = useStore((state) => state.addNode);
     const addEdge = useStore((state) => state.addEdge);
+    const deleteEdge = useStore((state) => state.deleteEdge);
     const splitEdge = useStore((state) => state.splitEdge);
     const setEditorMode = useStore((state) => state.setEditorMode);
     const addOpening = useStore((state) => state.addOpening);
     const addWindowWall = useStore((state) => state.addWindowWall);
 
-    // Drawing state
+    // Drawing state (low-frequency, click-driven)
     const [startNodeId, setStartNodeId] = useState<string | null>(null);
-    const [cursorPos, setCursorPos] = useState<Vector3>(new Vector3(0, 0, 0));
-    const [rawCursorPos, setRawCursorPos] = useState<{ x: number; y: number } | null>(null);
-    const [hasMouseMoved, setHasMouseMoved] = useState(false);
-
-    // Opening Tool State
-    const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
-    const [hoverT, setHoverT] = useState<number>(0);
-    const [ghostPos, setGhostPos] = useState<{ x: number, y: number, angle: number } | null>(null);
     const openingToolMode = useStore((state) => state.openingToolMode);
-    const setOpeningToolMode = useStore((state) => state.setOpeningToolMode);
+    const isErase = editorMode === 'walls' && wallToolMode === 'erase';
 
-    // Get start node position for snapping reference
-    const startNode = startNodeId ? nodes.find(n => n.id === startNodeId) : null;
+    // High-frequency cursor state lives in refs (no re-renders on pointermove)
+    const snapRef = useRef<SnapResult>({ x: 0, y: 0, snappedToNode: null, isAxisAligned: false, snapType: 'none' });
+    const hasMouseMovedRef = useRef(false);
+    const hoverRef = useRef<{ edgeId: string | null; t: number; x: number; y: number; angle: number }>({
+        edgeId: null, t: 0, x: 0, y: 0, angle: 0
+    });
 
-    // Apply snapping (only if mouse has moved)
-    const snapResult = useSnapSystem(
-        rawCursorPos?.x ?? 0,
-        rawCursorPos?.y ?? 0,
-        nodes,
-        {
-            referencePoint: startNode ? { x: startNode.x, y: startNode.y } : null
-        }
-    );
-
-    // Update visual cursor position when snap result changes
-    useEffect(() => {
-        if (hasMouseMoved) {
-            setCursorPos(new Vector3(snapResult.x, 0.1, snapResult.y));
-        }
-    }, [snapResult.x, snapResult.y, hasMouseMoved]);
+    // Refs to the feedback meshes updated imperatively in useFrame
+    const cursorRingRef = useRef<THREE.Mesh>(null);
+    const cursorRingMatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const snapDotRef = useRef<THREE.Mesh>(null);
+    const phantomRef = useRef<THREE.Mesh>(null);
+    const phantomMatRef = useRef<THREE.MeshBasicMaterial>(null);
+    const dimGroupRef = useRef<THREE.Group>(null);
+    const dimLabelRef = useRef<HTMLDivElement>(null);
+    const ghostRef = useRef<THREE.Mesh>(null);
 
     // Cleanup state on mode change
     useEffect(() => {
-        if (editorMode !== 'walls') setStartNodeId(null);
+        if (editorMode !== 'walls' || wallToolMode === 'erase') setStartNodeId(null);
         if (editorMode !== 'openings') {
-            setHoverEdgeId(null);
-            setGhostPos(null);
+            hoverRef.current.edgeId = null;
         }
-    }, [editorMode]);
+    }, [editorMode, wallToolMode]);
 
     // ESC Key handler
     useEffect(() => {
@@ -84,60 +76,168 @@ export const WallEditor: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [startNodeId, editorMode, setEditorMode]);
 
-    // Handle pointer move
+    // Handle pointer move: only update refs, never React state
     const handlePointerMove = useCallback((e: ThreeEvent<PointerEvent>) => {
         if (editorMode !== 'walls' && editorMode !== 'openings') return;
 
         // Valid hit check
         if (Math.abs(e.point.y - 0.01) > 0.001) return;
 
-        if (!hasMouseMoved) setHasMouseMoved(true);
-        setRawCursorPos({ x: e.point.x, y: e.point.z });
+        hasMouseMovedRef.current = true;
+
+        const scene = useStore.getState().scene;
+        const start = startNodeId ? scene.nodes.find(n => n.id === startNodeId) : null;
+        snapRef.current = computeSnap(e.point.x, e.point.z, scene.nodes, {
+            referencePoint: start ? { x: start.x, y: start.y } : null
+        });
+
+        // ERASE: highlight nearest wall segment
+        if (editorMode === 'walls' && useStore.getState().wallToolMode === 'erase') {
+            const nearest = findNearestEdge(e.point.x, e.point.z, scene.edges, scene.nodes, 0.45);
+            if (nearest) {
+                const edge = scene.edges.find(ed => ed.id === nearest.edgeId);
+                const n1 = edge && scene.nodes.find(n => n.id === edge.startNodeId);
+                const n2 = edge && scene.nodes.find(n => n.id === edge.endNodeId);
+                if (edge && n1 && n2) {
+                    hoverRef.current = {
+                        edgeId: edge.id,
+                        t: 0.5,
+                        x: (n1.x + n2.x) / 2,
+                        y: (n1.y + n2.y) / 2,
+                        angle: Math.atan2(n2.y - n1.y, n2.x - n1.x),
+                    };
+                    return;
+                }
+            }
+            hoverRef.current.edgeId = null;
+            return;
+        }
 
         // OPENING TOOL LOGIC
         if (editorMode === 'openings') {
             if (openingToolMode === 'glass_wall') {
-                // Glass wall drawing mode: hide ghost hover
-                setHoverEdgeId(null);
-                setGhostPos(null);
+                hoverRef.current.edgeId = null;
                 return;
             }
 
             // Click-to-place Door/Window Mode
-            const nearest = findNearestEdge(e.point.x, e.point.z, edges, nodes);
-            if (nearest && nearest.distance < 0.5) { // 50cm snap radius
-                const edge = edges.find(ed => ed.id === nearest.edgeId);
-                if (edge) {
-                    const n1 = nodes.find(n => n.id === edge.startNodeId);
-                    const n2 = nodes.find(n => n.id === edge.endNodeId);
-                    if (n1 && n2) {
-                        const dx = n2.x - n1.x;
-                        const dy = n2.y - n1.y;
-                        const len = Math.hypot(dx, dy);
-                        
-                        // Calculate projection ratio t
-                        let t = ((e.point.x - n1.x) * dx + (e.point.z - n1.y) * dy) / (len * len);
-                        t = Math.max(0.05, Math.min(0.95, t)); // Keep away from joints
-                        
-                        const snapX = n1.x + t * dx;
-                        const snapY = n1.y + t * dy;
-                        const angle = Math.atan2(dy, dx);
-                        
-                        setHoverEdgeId(edge.id);
-                        setHoverT(t);
-                        setGhostPos({ x: snapX, y: snapY, angle });
-                        return;
-                    }
+            const nearest = findNearestEdge(e.point.x, e.point.z, scene.edges, scene.nodes, 0.5);
+            if (nearest) {
+                const edge = scene.edges.find(ed => ed.id === nearest.edgeId);
+                const n1 = edge && scene.nodes.find(n => n.id === edge.startNodeId);
+                const n2 = edge && scene.nodes.find(n => n.id === edge.endNodeId);
+                if (edge && n1 && n2) {
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const len = Math.hypot(dx, dy);
+
+                    // Calculate projection ratio t
+                    let t = ((e.point.x - n1.x) * dx + (e.point.z - n1.y) * dy) / (len * len);
+                    t = Math.max(0.05, Math.min(0.95, t)); // Keep away from joints
+
+                    hoverRef.current = {
+                        edgeId: edge.id,
+                        t,
+                        x: n1.x + t * dx,
+                        y: n1.y + t * dy,
+                        angle: Math.atan2(dy, dx)
+                    };
+                    return;
                 }
             }
-            setHoverEdgeId(null);
-            setGhostPos(null);
+            hoverRef.current.edgeId = null;
         }
-    }, [editorMode, hasMouseMoved, edges, nodes, openingToolMode]);
+    }, [editorMode, startNodeId, openingToolMode]);
+
+    // Imperative visual feedback (runs on the render loop, zero React work)
+    useFrame(() => {
+        const snap = snapRef.current;
+        const eraseMode = editorMode === 'walls' && useStore.getState().wallToolMode === 'erase';
+        const isDrawingFeedback =
+            hasMouseMovedRef.current &&
+            !eraseMode &&
+            (editorMode === 'walls' || (editorMode === 'openings' && !!startNodeId));
+
+        // Cursor ring
+        if (cursorRingRef.current && cursorRingMatRef.current) {
+            cursorRingRef.current.visible = isDrawingFeedback;
+            cursorRingRef.current.position.set(snap.x, 0.12, snap.y);
+            cursorRingMatRef.current.color.set(
+                snap.snappedToNode ? '#22c55e' :
+                    editorMode === 'openings' ? '#f59e0b' :
+                        snap.isAxisAligned ? '#f59e0b' : '#3b82f6'
+            );
+        }
+
+        // Snap indicator dot
+        if (snapDotRef.current) {
+            snapDotRef.current.visible = isDrawingFeedback && !!snap.snappedToNode;
+            snapDotRef.current.position.set(snap.x, 0.13, snap.y);
+        }
+
+        // Phantom line + dimension label (only while a start node exists)
+        const start = startNodeId ? useStore.getState().scene.nodes.find(n => n.id === startNodeId) : null;
+        const dx = start ? snap.x - start.x : 0;
+        const dy = start ? snap.y - start.y : 0;
+        const dist = Math.hypot(dx, dy);
+        const showLine = isDrawingFeedback && !!start && dist >= 0.05;
+
+        if (phantomRef.current && phantomMatRef.current) {
+            phantomRef.current.visible = showLine;
+            if (showLine && start) {
+                const angle = Math.atan2(dy, dx);
+                phantomRef.current.position.set((start.x + snap.x) / 2, 0.1, (start.y + snap.y) / 2);
+                phantomRef.current.rotation.set(0, -angle, 0);
+                phantomRef.current.scale.set(dist, 1, 1);
+                phantomMatRef.current.color.set(
+                    editorMode === 'openings' ? '#fbbf24' :
+                        snap.isAxisAligned ? '#f59e0b' : '#3b82f6'
+                );
+            }
+        }
+
+        if (dimGroupRef.current) {
+            dimGroupRef.current.visible = showLine && dist >= 0.1;
+            if (start) {
+                dimGroupRef.current.position.set((start.x + snap.x) / 2, 0.5, (start.y + snap.y) / 2);
+            }
+        }
+        if (dimLabelRef.current) {
+            dimLabelRef.current.style.display = (showLine && dist >= 0.1) ? 'block' : 'none';
+            dimLabelRef.current.textContent = `${dist.toFixed(2)} m`;
+        }
+
+        // Openings / erase ghost preview
+        if (ghostRef.current) {
+            const hover = hoverRef.current;
+            const eraseMode = editorMode === 'walls' && useStore.getState().wallToolMode === 'erase';
+            const showGhost =
+                (editorMode === 'openings' && openingToolMode !== 'glass_wall' && !!hover.edgeId) ||
+                (eraseMode && !!hover.edgeId);
+            ghostRef.current.visible = showGhost;
+            if (showGhost) {
+                ghostRef.current.position.set(hover.x, eraseMode ? 0.2 : 0.75, hover.y);
+                ghostRef.current.rotation.set(0, -hover.angle, 0);
+            }
+        }
+    });
 
     // Handle click
     const handleClick = useCallback((e: ThreeEvent<MouseEvent>) => {
         if (e.button !== 0) return;
+
+        const snapResult = snapRef.current;
+
+        // ERASE MODE — delete nearest wall segment
+        if (editorMode === 'walls' && useStore.getState().wallToolMode === 'erase') {
+            e.stopPropagation();
+            const hover = hoverRef.current;
+            if (hover.edgeId) {
+                deleteEdge(hover.edgeId);
+                hoverRef.current.edgeId = null;
+            }
+            return;
+        }
 
         // OPENINGS MODE
         if (editorMode === 'openings') {
@@ -145,11 +245,12 @@ export const WallEditor: React.FC = () => {
 
             if (openingToolMode !== 'glass_wall') {
                 // Place window or door directly inside the hovered wall!
-                if (hoverEdgeId && ghostPos) {
-                    addOpening(hoverEdgeId, hoverT, openingToolMode);
-                    // Clear hover preview
-                    setHoverEdgeId(null);
-                    setGhostPos(null);
+                const hover = hoverRef.current;
+                if (hover.edgeId) {
+                    const id = addOpening(hover.edgeId, hover.t, openingToolMode);
+                    hoverRef.current.edgeId = null;
+                    useStore.getState().setActiveOpeningId(id);
+                    useStore.getState().setActiveWallId(null);
                 }
                 return;
             }
@@ -212,43 +313,38 @@ export const WallEditor: React.FC = () => {
         const clickX = snapResult.x;
         const clickY = snapResult.y;
 
-        if (!startNodeId) {
-            // ... (Existing Wall drawing start logic) ...
-            // First click - start drawing
-            let nodeId: string;
-            if (snapResult.snappedToNode) {
-                nodeId = snapResult.snappedToNode.id;
-            } else {
-                const nearestEdge = findNearestEdge(clickX, clickY, edges, nodes);
-                if (nearestEdge && nearestEdge.distance < 0.15) {
-                    nodeId = splitEdge(nearestEdge.edgeId, clickX, clickY);
-                } else {
-                    nodeId = addNode(clickX, clickY);
-                }
+        // Prefer corner merge over mid-wall split (fixes bounce / gap at junctions)
+        const NODE_JOIN_DIST = 0.5;
+        const EDGE_JOIN_DIST = 0.35;
+
+        const resolveClickNode = (): string => {
+            if (snapResult.snappedToNode) return snapResult.snappedToNode.id;
+
+            const nearNode = findNearestNode(clickX, clickY, nodes, NODE_JOIN_DIST);
+            if (nearNode) return nearNode.node.id;
+
+            const nearestEdge = findNearestEdge(clickX, clickY, edges, nodes, EDGE_JOIN_DIST);
+            if (nearestEdge) {
+                // splitEdge returns existing endpoint when click is near a corner
+                return splitEdge(nearestEdge.edgeId, clickX, clickY);
             }
-            setStartNodeId(nodeId);
+            return addNode(clickX, clickY);
+        };
+
+        if (!startNodeId) {
+            setStartNodeId(resolveClickNode());
         } else {
-            // ... (Existing Wall drawing end logic) ...
             const start = nodes.find(n => n.id === startNodeId);
             if (!start) return;
             const dist = Math.hypot(clickX - start.x, clickY - start.y);
             if (dist < 0.1) return;
 
-            let endNodeId: string;
-            if (snapResult.snappedToNode) {
-                endNodeId = snapResult.snappedToNode.id;
-            } else {
-                const nearestEdge = findNearestEdge(clickX, clickY, edges, nodes);
-                if (nearestEdge && nearestEdge.distance < 0.15) {
-                    endNodeId = splitEdge(nearestEdge.edgeId, clickX, clickY);
-                } else {
-                    endNodeId = addNode(clickX, clickY);
-                }
-            }
+            const endNodeId = resolveClickNode();
+            if (endNodeId === startNodeId) return;
             addEdge(startNodeId, endNodeId);
             setStartNodeId(endNodeId);
         }
-    }, [editorMode, startNodeId, snapResult, nodes, edges, addNode, addEdge, splitEdge, hoverEdgeId, hoverT, ghostPos, addOpening]);
+    }, [editorMode, startNodeId, nodes, edges, addNode, addEdge, deleteEdge, splitEdge, addOpening, addWindowWall, openingToolMode]);
 
     if (editorMode !== 'walls' && editorMode !== 'openings') return null;
 
@@ -265,149 +361,52 @@ export const WallEditor: React.FC = () => {
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} />
             </mesh>
 
-            {/* DRAWING FEEDBACK (Walls OR Openings) */}
-            {(editorMode === 'walls' || (editorMode === 'openings' && startNodeId)) && hasMouseMoved && (
-                <group>
-                    <mesh position={[cursorPos.x, 0.12, cursorPos.z]} rotation={[-Math.PI / 2, 0, 0]}>
-                        <ringGeometry args={[0.08, 0.12, 16]} />
-                        <meshBasicMaterial color={
-                            snapResult.snappedToNode ? '#22c55e' :
-                                editorMode === 'openings' ? '#f59e0b' : // Amber for window
-                                    snapResult.isAxisAligned ? '#f59e0b' : '#3b82f6'
-                        } />
-                    </mesh>
-                    {/* Snap indicator */}
-                    {snapResult.snappedToNode && (
-                        <mesh position={[snapResult.x, 0.13, snapResult.y]} rotation={[-Math.PI / 2, 0, 0]}>
-                            <circleGeometry args={[0.06, 16]} />
-                            <meshBasicMaterial color="#22c55e" />
-                        </mesh>
-                    )}
-                    {/* Phantom line */}
-                    {startNodeId && startNode && (
-                        <PhantomLine
-                            start={{ x: startNode.x, y: startNode.y }}
-                            end={{ x: cursorPos.x, y: cursorPos.z }}
-                            isAxisAligned={snapResult.isAxisAligned}
-                            color={editorMode === 'openings' ? '#fbbf24' : undefined}
-                        />
-                    )}
-                    {/* Dimension label */}
-                    {startNodeId && startNode && (
-                        <DimensionLabel start={{ x: startNode.x, y: startNode.y }} end={{ x: cursorPos.x, y: cursorPos.z }} />
-                    )}
-                </group>
-            )}
+            {/* DRAWING FEEDBACK - meshes are always mounted, toggled/moved via useFrame */}
+            <mesh ref={cursorRingRef} visible={false} rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[0.08, 0.12, 16]} />
+                <meshBasicMaterial ref={cursorRingMatRef} color="#3b82f6" />
+            </mesh>
 
-            {/* OPENINGS MODE: Ghost Preview */}
-            {editorMode === 'openings' && ghostPos && (
-                <mesh position={[ghostPos.x, 0.75, ghostPos.y]} rotation={[0, -ghostPos.angle, 0]}>
-                    <boxGeometry args={[openingToolMode === 'door' ? 0.9 : 1.2, openingToolMode === 'door' ? 2.1 : 1.5, 0.2]} />
-                    <meshBasicMaterial color={openingToolMode === 'door' ? "#fbbf24" : "#3b82f6"} opacity={0.5} transparent />
-                </mesh>
-            )}
+            {/* Snap indicator */}
+            <mesh ref={snapDotRef} visible={false} rotation={[-Math.PI / 2, 0, 0]}>
+                <circleGeometry args={[0.06, 16]} />
+                <meshBasicMaterial color="#22c55e" />
+            </mesh>
 
-            {/* WINDOW TYPE TOOLBAR (HUD) */}
-            {editorMode === 'openings' && (
-                <Html position={[0, 0, 0]} style={{ position: 'fixed', bottom: '130px', left: '50%', transform: 'translateX(-50%)', pointerEvents: 'auto' }} zIndexRange={[1000, 1000]}>
-                    <div className="flex bg-white/90 backdrop-blur-xl rounded-full shadow-2xl p-1 gap-1 border border-slate-200">
-                        <button
-                            onClick={() => {
-                                setOpeningToolMode('door');
-                                setStartNodeId(null);
-                            }}
-                            className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${openingToolMode === 'door'
-                                    ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20'
-                                    : 'text-slate-600 hover:bg-slate-100'
-                                }`}
-                        >
-                            🚪 Дверь
-                        </button>
-                        <button
-                            onClick={() => {
-                                setOpeningToolMode('window');
-                                setStartNodeId(null);
-                            }}
-                            className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${openingToolMode === 'window'
-                                    ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/20'
-                                    : 'text-slate-600 hover:bg-slate-100'
-                                }`}
-                        >
-                            🪟 Окно
-                        </button>
-                        <button
-                            onClick={() => setOpeningToolMode('glass_wall')}
-                            className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${openingToolMode === 'glass_wall'
-                                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                                    : 'text-slate-600 hover:bg-slate-100'
-                                }`}
-                        >
-                            💎 Окно-Стена (Панорама)
-                        </button>
-                    </div>
+            {/* Phantom line (unit box scaled along X each frame) */}
+            <mesh ref={phantomRef} visible={false} raycast={() => null}>
+                <boxGeometry args={[1, 0.12, 0.04]} />
+                <meshBasicMaterial ref={phantomMatRef} color="#3b82f6" opacity={0.6} transparent />
+            </mesh>
+
+            {/* Dimension label (group is moved imperatively, Html tracks parent transform) */}
+            <group ref={dimGroupRef} visible={false}>
+                <Html center pointerEvents="none" zIndexRange={[100, 0]}>
+                    <div
+                        ref={dimLabelRef}
+                        style={{ display: 'none' }}
+                        className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded shadow-lg select-none whitespace-nowrap"
+                    />
                 </Html>
+            </group>
+
+            {/* OPENINGS / ERASE: Ghost Preview */}
+            {(editorMode === 'openings' || isErase) && (
+                <mesh ref={ghostRef} visible={false}>
+                    <boxGeometry args={[
+                        isErase ? 1.2 : (openingToolMode === 'window' ? 1.2 : 0.9),
+                        isErase ? 0.25 : (openingToolMode === 'window' ? 1.5 : 2.1),
+                        isErase ? 0.25 : 0.2,
+                    ]} />
+                    <meshBasicMaterial
+                        color={isErase ? "#ef4444" : (openingToolMode === 'balcony_door' ? "#38bdf8" : (openingToolMode === 'door' ? "#fbbf24" : "#3b82f6"))}
+                        opacity={0.5}
+                        transparent
+                    />
+                </mesh>
             )}
         </group>
     );
 };
-
-/**
- * PhantomLine - Dashed preview line
- */
-const PhantomLine: React.FC<{
-    start: { x: number; y: number };
-    end: { x: number; y: number };
-    isAxisAligned: boolean;
-    color?: string;
-}> = React.memo(({ start, end, isAxisAligned, color }) => {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist < 0.05) return null;
-
-    const angle = Math.atan2(dy, dx);
-    const mx = (start.x + end.x) / 2;
-    const my = (start.y + end.y) / 2;
-
-    return (
-        <mesh
-            position={[mx, 0.1, my]}
-            rotation={[0, -angle, 0]}
-            raycast={() => null}
-        >
-            <boxGeometry args={[dist, 0.12, 0.04]} />
-            <meshBasicMaterial
-                color={color || (isAxisAligned ? '#f59e0b' : '#3b82f6')}
-                opacity={0.6}
-                transparent
-            />
-        </mesh>
-    );
-});
-
-/**
- * DimensionLabel - Shows distance while drawing
- */
-const DimensionLabel: React.FC<{
-    start: { x: number; y: number };
-    end: { x: number; y: number };
-}> = React.memo(({ start, end }) => {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const cx = (start.x + end.x) / 2;
-    const cy = (start.y + end.y) / 2;
-
-    if (dist < 0.1) return null;
-
-    return (
-        <Html position={[cx, 0.5, cy]} center pointerEvents="none" zIndexRange={[100, 0]}>
-            <div className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded shadow-lg select-none whitespace-nowrap">
-                {dist.toFixed(2)} m
-            </div>
-        </Html>
-    );
-});
 
 export default WallEditor;

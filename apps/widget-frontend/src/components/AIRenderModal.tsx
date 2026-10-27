@@ -19,7 +19,7 @@ const LIGHTS = [
     { id: 'twilight', name: 'Мягкий закат', desc: 'Золотисто-розовая дымка', icon: '🌅' }
 ];
 
-const API_BASE = 'http://localhost:3000/api/uploads';
+const API_BASE = `${import.meta.env.VITE_API_URL || 'http://localhost:3000/api'}/uploads`;
 
 export const AIRenderModal: React.FC<AIRenderModalProps> = ({ isOpen, onClose }) => {
     const [selectedStyle, setSelectedStyle] = useState('scandi');
@@ -250,7 +250,7 @@ export const AIRenderModal: React.FC<AIRenderModalProps> = ({ isOpen, onClose })
                                 <div className="flex gap-2">
                                     <a
                                         href={results[activeResultIdx]}
-                                        download={`anniversary_ai_render_${selectedStyle}.png`}
+                                        download={`flatbuilder_ai_render_${selectedStyle}.png`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="h-10 px-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl flex items-center justify-center gap-2 text-xs font-semibold active:scale-95 transition-all"

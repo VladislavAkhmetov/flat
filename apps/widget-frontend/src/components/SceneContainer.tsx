@@ -1,35 +1,41 @@
 import React from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrthographicCamera, PerspectiveCamera, OrbitControls, Grid, ContactShadows, Box } from '@react-three/drei';
+import { OrthographicCamera, PerspectiveCamera, OrbitControls, Grid, Box, Environment, RoundedBox, ContactShadows } from '@react-three/drei';
 import { useStore } from '../store';
-// WallLayer removed - using graph-based WallGraph now
 import { WallEditor } from './WallEditor';
 import { WallGraph } from './WallGraph';
 import { ObjectLayer } from './ObjectLayer';
 import { FurniturePlacer } from './FurniturePlacer';
 import { FirstPersonController } from './FirstPersonController';
 import { PlanUnderlay } from './PlanUnderlay';
+import { getFloorTexture, FLOOR_MATERIALS } from '../utils/materialTextures';
 
 export const SceneContainer: React.FC = () => {
-    const scene = useStore((state) => state.scene);
+    // Narrow selectors instead of subscribing to the whole scene object
+    const sceneNodes = useStore((state) => state.scene.nodes);
     const editorMode = useStore((state) => state.editorMode);
+    const planReviewActive = useStore((state) => state.planReviewActive);
     // Disable controls while dragging objects to prevent conflicts
     const isDragging = useStore((state) => state.isDragging);
-        const activeWallId = useStore((state) => state.activeWallId);
+    const activeWallId = useStore((state) => state.activeWallId);
     const activeObjectId = useStore((state) => state.activeObjectId);
-    const wallDrawingStart = useStore((state) => state.wallDrawingStart);
-    const walls = useStore((state) => state.scene.walls);
     const undo = useStore((state) => state.undo);
     const redo = useStore((state) => state.redo);
-    const mode = scene.camera.mode;
+    const mode = useStore((state) => state.scene.camera.mode);
     const spawnObject = useStore((state) => 
         state.scene.objects.find(o => o.catalogId === 'spawn_point')
     );
+    const atmosphereMode = useStore((state) => state.atmosphereMode || 'day');
     const isNightMode = useStore((state) => state.isNightMode);
     const lightsOn = useStore((state) => state.lightsOn);
 
+    const floorId = useStore((state) => state.scene.materials?.floorId || 'wood_chevron');
+    const floorMatInfo = React.useMemo(() => {
+        return FLOOR_MATERIALS.find((m) => m.id === floorId) || FLOOR_MATERIALS[0];
+    }, [floorId]);
+
     const bounds = React.useMemo(() => {
-        const nodes = scene.nodes || [];
+        const nodes = sceneNodes || [];
         if (nodes.length === 0) {
             return { minX: -5, maxX: 5, minZ: -5, maxZ: 5, width: 10, depth: 10, centerX: 0, centerZ: 0 };
         }
@@ -55,11 +61,62 @@ export const SceneContainer: React.FC = () => {
             centerX: (minX + maxX) / 2,
             centerZ: (minZ + maxZ) / 2
         };
-    }, [scene.nodes]);
+    }, [sceneNodes]);
+
+    const floorTexture = React.useMemo(() => {
+        const tex = getFloorTexture(floorId);
+        if (tex) {
+            tex.repeat.set(Math.max(1, bounds.width / 2.2), Math.max(1, bounds.depth / 2.2));
+            tex.needsUpdate = true;
+        }
+        return tex;
+    }, [floorId, bounds.width, bounds.depth]);
+
+    // Lighting colors based on atmosphere
+    const lightConfig = React.useMemo(() => {
+        if (atmosphereMode === 'night' || isNightMode) {
+            return {
+                ambientColor: lightsOn ? '#3f3a28' : '#0b0f19',
+                ambientIntensity: lightsOn ? 0.35 : 0.08,
+                hemiColor: '#1e293b',
+                hemiGround: '#0b0f19',
+                hemiIntensity: 0.1,
+                sunColor: '#38bdf8',
+                sunIntensity: 0.12,
+                sunPos: [15, 25, 10] as [number, number, number],
+                bg: '#050811'
+            };
+        }
+        if (atmosphereMode === 'sunset') {
+            return {
+                ambientColor: '#fed7aa',
+                ambientIntensity: lightsOn ? 0.45 : 0.35,
+                hemiColor: '#fb923c',
+                hemiGround: '#7c2d12',
+                hemiIntensity: 0.25,
+                sunColor: '#ea580c',
+                sunIntensity: 0.85,
+                sunPos: [25, 12, 18] as [number, number, number],
+                bg: '#fdf2e9'
+            };
+        }
+        // Default Day
+        return {
+            ambientColor: lightsOn ? '#fffbe8' : '#ffffff',
+            ambientIntensity: 0.45,
+            hemiColor: '#eaf2ff',
+            hemiGround: '#d9c9a8',
+            hemiIntensity: 0.35,
+            sunColor: '#fffbeb',
+            sunIntensity: 0.75,
+            sunPos: [15, 25, 10] as [number, number, number],
+            bg: '#ffffff'
+        };
+    }, [atmosphereMode, isNightMode, lightsOn]);
 
     const controlsRef = React.useRef<any>(null);
 
-    // Handle Undo/Redo Shortcuts
+    // Handle Undo/Redo + Delete selected wall/opening
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.metaKey || e.ctrlKey) {
@@ -73,6 +130,29 @@ export const SceneContainer: React.FC = () => {
                 } else if (e.code === 'KeyY') {
                     e.preventDefault();
                     redo();
+                }
+                return;
+            }
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                const tag = (e.target as HTMLElement)?.tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
+                    return;
+                }
+                const state = useStore.getState();
+                if (state.activeOpeningId) {
+                    e.preventDefault();
+                    state.deleteOpening(state.activeOpeningId);
+                    state.setActiveOpeningId(null);
+                    return;
+                }
+                if (state.activeWallId) {
+                    const edge = state.scene.edges.find((ed) => ed.id === state.activeWallId);
+                    // Allow bearing delete during plan review QA
+                    if (edge && (edge.kind !== 'bearing' || state.planReviewActive)) {
+                        e.preventDefault();
+                        state.deleteEdge(state.activeWallId);
+                        state.setActiveWallId(null);
+                    }
                 }
             }
         };
@@ -89,12 +169,15 @@ export const SceneContainer: React.FC = () => {
         let targetZ = 0;
         let found = false;
 
+        // Read scene once on selection change (no reactive subscription needed here)
+        const currentScene = useStore.getState().scene;
+
         // 1. Check Active Wall
         if (activeWallId) {
-            const edge = scene.edges.find(e => e.id === activeWallId);
+            const edge = currentScene.edges.find(e => e.id === activeWallId);
             if (edge) {
-                const n1 = scene.nodes.find(n => n.id === edge.startNodeId);
-                const n2 = scene.nodes.find(n => n.id === edge.endNodeId);
+                const n1 = currentScene.nodes.find(n => n.id === edge.startNodeId);
+                const n2 = currentScene.nodes.find(n => n.id === edge.endNodeId);
                 if (n1 && n2) {
                     targetX = (n1.x + n2.x) / 2;
                     targetZ = (n1.y + n2.y) / 2;
@@ -104,7 +187,7 @@ export const SceneContainer: React.FC = () => {
         }
         // 2. Check Active Object (Furniture)
         if (!found && activeObjectId) {
-            const obj = scene.objects.find(o => o.id === activeObjectId);
+            const obj = currentScene.objects.find(o => o.id === activeObjectId);
             if (obj) {
                 targetX = obj.pos.x;
                 targetZ = obj.pos.z;
@@ -128,63 +211,70 @@ export const SceneContainer: React.FC = () => {
     }, [activeWallId, activeObjectId, mode]);
 
     return (
+        <>
+        {/* Static crosshair in walk mode: a fixed visual anchor noticeably reduces motion sickness */}
+        {mode === 'walk' && (
+            <div
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none"
+                aria-hidden
+            >
+                <div className="w-1.5 h-1.5 rounded-full bg-white/80 shadow-[0_0_3px_rgba(0,0,0,0.6)]" />
+            </div>
+        )}
         <Canvas 
-            shadows 
-            dpr={[1, 2]} 
-            gl={{ antialias: true }}
-            style={{ background: '#f8fafc', width: '100%', height: '100%' }}
+            shadows={mode === 'walk'} 
+            dpr={mode === '2d' ? [1, 2] : [1, 1.25]} 
+            gl={{ antialias: mode === '2d', powerPreference: 'high-performance' }}
+            style={{ background: lightConfig.bg, width: '100%', height: '100%' }}
         >
-            {/* Ambient Lighting based on Day/Night & Lights Toggles */}
+            {/* Ambient and Hemisphere lighting based on atmosphere mode */}
             <ambientLight 
-                color={isNightMode ? (lightsOn ? "#1e293b" : "#0b0f19") : "#ffffff"} 
-                intensity={isNightMode ? (lightsOn ? 0.25 : 0.08) : 0.65} 
+                color={lightConfig.ambientColor} 
+                intensity={lightConfig.ambientIntensity} 
             />
-            {/* Cozy Soft Warm Ambient Fill Light when indoor lights are ON */}
-            {lightsOn && (
-                <ambientLight color="#fef08a" intensity={isNightMode ? 0.35 : 0.15} />
-            )}
+            <hemisphereLight
+                color={lightConfig.hemiColor}
+                groundColor={lightConfig.hemiGround}
+                intensity={lightConfig.hemiIntensity}
+            />
 
-            {/* Sun or Moon Directional Light casting high-fidelity sharp shadows */}
+            {/* Sun or Moon Directional Light - the ONLY shadow-casting light in the scene */}
             <directionalLight 
-                position={[15, 25, 10]} 
-                castShadow 
-                color={isNightMode ? "#38bdf8" : "#fffbeb"} 
-                intensity={isNightMode ? 0.12 : 0.75} 
-                shadow-mapSize={[2048, 2048]}
+                position={lightConfig.sunPos} 
+                castShadow={mode === 'walk'} 
+                color={lightConfig.sunColor} 
+                intensity={lightConfig.sunIntensity} 
+                shadow-mapSize={mode === 'walk' ? [1024, 1024] : [512, 512]}
                 shadow-bias={-0.0003}
             >
                 <orthographicCamera attach="shadow-camera" args={[-15, 15, 15, -15, 0.1, 50]} />
             </directionalLight>
 
-            {/* Suspended Point Lights distributed across the plan when interior lights are ON */}
+            {/* Suspended Point Lights distributed across the plan when interior lights are ON (no shadows) */}
             {lightsOn && (
                 <group name="InteriorPointLights">
                     {/* Bathroom/Kitchen area */}
-                    <pointLight position={[-2.5, 2.3, -2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} castShadow />
+                    <pointLight position={[-2.5, 2.3, -2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} />
                     {/* Corridor/Living area */}
-                    <pointLight position={[2.5, 2.3, -2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} castShadow />
+                    <pointLight position={[2.5, 2.3, -2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} />
                     {/* Kitchen counter area */}
-                    <pointLight position={[-2.5, 2.3, 2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} castShadow />
+                    <pointLight position={[-2.5, 2.3, 2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} />
                     {/* Bedroom area */}
-                    <pointLight position={[2.5, 2.3, 2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} castShadow />
+                    <pointLight position={[2.5, 2.3, 2.5]} color="#fef08a" intensity={isNightMode ? 1.5 : 0.5} distance={8} decay={1.5} />
                 </group>
             )}
-            {/* Global premium soft contact shadows & solid ground plane to ground all 3D furniture blocks */}
-            {mode !== '2d' && (
-                <>
-                    <ContactShadows 
-                        position={[0, 0.025, 0]} 
-                        opacity={0.6} 
-                        scale={30} 
-                        blur={2.0} 
-                        far={5} 
-                    />
-                    {/* High-fidelity ground plane that receives real-time shadows */}
-                    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
-                        <planeGeometry args={[100, 100]} />
-                        <meshStandardMaterial color="#f1f5f9" roughness={0.9} metalness={0.05} />
-                    </mesh>
-                </>
+
+            {/* HDRI only in walk — expensive IBL in orbital 3D kills FPS */}
+            {mode === 'walk' && (
+                <Environment preset="apartment" />
+            )}
+
+            {/* Solid ground plane in Walk mode only (3D orbital has floating architectural podium) */}
+            {mode === 'walk' && (
+                <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
+                    <planeGeometry args={[100, 100]} />
+                    <meshStandardMaterial color={isNightMode ? '#0f172a' : '#f1f5f9'} roughness={0.9} metalness={0.05} />
+                </mesh>
             )}
 
             {mode === '2d' && (
@@ -197,20 +287,14 @@ export const SceneContainer: React.FC = () => {
                         enableRotate={false}
                         enableZoom={true} // Always allow zoom, just filter pointer events for drawing
                         zoomToCursor={true}
-                        // Lock polar angle to a tiny non-zero offset to prevent random 2D canvas rotation
                         minPolarAngle={0.001}
                         maxPolarAngle={0.001}
-                        // We do NOT disable enabled={...} because it kills wheel zoom. 
-                        // Instead relies on event propagation or custom logic if needed.
-                        // But to prevent conflict with dragging node, we rely on `isDragging`.
                         enabled={!isDragging}
                         mouseButtons={{
                             LEFT: 2, // Right Click Pan (Standard CAD: Middle or Right pan)
                             MIDDLE: 2, // Middle Pan
                             RIGHT: 2   // Right Pan
                         }}
-                    // In 2D, Left Click is for Selection/Drawing (handled by scene objects), 
-                    // so we map OrbitControls Pan to Middle/Right.
                     />
                     {/* Background Click to Deselect */}
                     <mesh
@@ -242,10 +326,19 @@ export const SceneContainer: React.FC = () => {
 
             {mode === '3d' && (
                 <>
-                    <PerspectiveCamera makeDefault position={[5, 8, 5]} fov={50} />
+                    <PerspectiveCamera 
+                        makeDefault 
+                        position={[
+                            bounds.centerX + Math.max(bounds.width, bounds.depth, 7) * 0.95,
+                            Math.max(bounds.width, bounds.depth, 7) * 1.15,
+                            bounds.centerZ + Math.max(bounds.width, bounds.depth, 7) * 0.95
+                        ]} 
+                        fov={34} 
+                    />
                     <OrbitControls
                         makeDefault
                         ref={controlsRef}
+                        target={[bounds.centerX, 0.3, bounds.centerZ]}
                         enabled={!isDragging}
                         zoomSpeed={1.5}
                         mouseButtons={{
@@ -254,11 +347,38 @@ export const SceneContainer: React.FC = () => {
                             RIGHT: 2   // 2 = PAN
                         }}
                     />
-                    <Grid args={[20, 20]} cellColor="#e2e8f0" sectionColor="#cbd5e1" />
+
+                    {/* Airbnb-style Monolithic Beveled Podium Slab */}
+                    <RoundedBox 
+                        args={[bounds.width + 0.25, 0.14, bounds.depth + 0.25]} 
+                        radius={0.06} 
+                        smoothness={4} 
+                        position={[bounds.centerX, -0.07, bounds.centerZ]}
+                        receiveShadow
+                    >
+                        <meshStandardMaterial 
+                            color="#faf8f5"
+                            roughness={0.7} 
+                            metalness={0.02} 
+                        />
+                    </RoundedBox>
+
+                    {/* Airbnb Porcelain Floor is the top surface of the Monolithic Podium Slab */}
+
+                    {/* Airbnb-style Soft Ambient Contact Drop Shadow */}
+                    <ContactShadows 
+                        position={[bounds.centerX, -0.145, bounds.centerZ]} 
+                        opacity={0.65} 
+                        scale={Math.max(bounds.width, bounds.depth) * 1.6} 
+                        blur={2.4} 
+                        far={4} 
+                        color="#4a4237" 
+                    />
+
                     {/* Background Click to Deselect in 3D */}
                     <mesh
                         rotation={[-Math.PI / 2, 0, 0]}
-                        position={[0, -0.01, 0]}
+                        position={[0, -0.2, 0]}
                         onClick={(e) => {
                             e.stopPropagation();
                             useStore.getState().setActiveWallId(null);
@@ -273,10 +393,11 @@ export const SceneContainer: React.FC = () => {
 
             {mode === 'walk' && (
                 <>
+                    {/* FOV 60: high FOV (75+) amplifies peripheral optical flow - a major motion sickness trigger */}
                     <PerspectiveCamera 
                         makeDefault 
                         position={spawnObject ? [spawnObject.pos.x, 1.6, spawnObject.pos.z] : [0, 1.6, 0]} 
-                        fov={75} 
+                        fov={60} 
                     />
                     <FirstPersonController />
                     
@@ -291,10 +412,15 @@ export const SceneContainer: React.FC = () => {
                         <meshStandardMaterial color="#cbd5e1" roughness={0.8} metalness={0.1} />
                     </Box>
 
-                    {/* Cozy and warm oak parquet wooden floor plane */}
+                    {/* Finished floor plane with chosen PBR material in Walk mode */}
                     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[bounds.centerX, 0.002, bounds.centerZ]} receiveShadow>
                         <planeGeometry args={[bounds.width, bounds.depth]} />
-                        <meshStandardMaterial color="#decba4" roughness={0.7} metalness={0.05} />
+                        <meshStandardMaterial 
+                            map={floorTexture || undefined} 
+                            color={floorTexture ? '#ffffff' : (floorMatInfo.color || '#e8dfd1')}
+                            roughness={floorMatInfo.roughness ?? 0.6} 
+                            metalness={floorMatInfo.metalness ?? 0.02} 
+                        />
                     </mesh>
                 </>
             )}
@@ -310,10 +436,13 @@ export const SceneContainer: React.FC = () => {
 
             {/* Opening Editor - click to add openings in openings mode */}
             {editorMode === 'openings' && mode === '2d' && (
-                <WallEditor /> // Re-using WallEditor which now handles openings
+                <WallEditor />
             )}
 
-            <FurniturePlacer />
+            {!planReviewActive && <FurniturePlacer />}
         </Canvas>
+        </>
     );
 };
+
+export default SceneContainer;

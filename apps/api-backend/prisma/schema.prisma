@@ -8,12 +8,18 @@ datasource db {
 }
 
 model Scene {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  data      Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  leads     Lead[]
+  id           String    @id @default(uuid())
+  token        String    @unique
+  data         Json
+  bakeStatus   String    @default("none")
+  bakeProgress Int       @default(0)
+  bakeError    String?
+  bakedGlbUrl  String?
+  panoramas    Json?
+  bakedAt      DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  leads        Lead[]
 }
 
 model Lead {
@@ -21,8 +27,8 @@ model Lead {
   name      String
   phone     String
   comment   String?
-  sceneId   String
-  scene     Scene    @relation(fields: [sceneId], references: [id])
+  sceneId   String?
+  scene     Scene?   @relation(fields: [sceneId], references: [id])
   createdAt DateTime @default(now())
 }
 

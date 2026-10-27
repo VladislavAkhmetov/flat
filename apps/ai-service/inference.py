@@ -37,8 +37,9 @@ class FloorPlanInference:
         self.wall_class_idx = wall_class_idx
         
         # ImageNet normalization (standard for pretrained models)
-        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(device)
-        self.std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(device)
+        # Must live on self.device (resolved above), not the raw `device` arg which may be None
+        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1).to(self.device)
+        self.std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1).to(self.device)
     
     def preprocess_image(self, image: np.ndarray) -> Tuple[torch.Tensor, Tuple[int, int, int, int]]:
         """

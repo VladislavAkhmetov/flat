@@ -6,12 +6,34 @@ import { Html } from '@react-three/drei';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import { FurnitureRenderer } from './FurniturePrimitives';
+import { findNearestEdge } from '../hooks/useSnapSystem';
+import { ROOM_PRESETS } from '../roomPresets';
 
 export const FurniturePlacer: React.FC = () => {
     const editorMode = useStore((state) => state.editorMode);
     const activeCatalogId = useStore((state) => state.activeCatalogId);
+    const activePresetId = useStore((state) => state.activePresetId);
     const addObject = useStore((state) => state.addObject);
-    const sceneWalls = useStore((state) => state.scene.walls);
+    const legacyWalls = useStore((state) => state.scene.walls);
+    const nodes = useStore((state) => state.scene.nodes);
+    const edges = useStore((state) => state.scene.edges);
+
+    // Snap against the actual node/edge graph (AI import and the editor write there),
+    // keeping legacy walls as a fallback for old scenes
+    const sceneWalls = React.useMemo(() => {
+        const graphWalls = edges.map(edge => {
+            const startNode = nodes.find(n => n.id === edge.startNodeId);
+            const endNode = nodes.find(n => n.id === edge.endNodeId);
+            if (!startNode || !endNode) return null;
+            return {
+                id: edge.id,
+                a: { x: startNode.x, y: startNode.y },
+                b: { x: endNode.x, y: endNode.y },
+                thickness: edge.thickness
+            };
+        }).filter((w): w is NonNullable<typeof w> => w !== null);
+        return [...graphWalls, ...legacyWalls];
+    }, [edges, nodes, legacyWalls]);
 
     // Use refs for performance (no re-renders)
     const userRotRef = useRef<number>(0);
@@ -21,6 +43,7 @@ export const FurniturePlacer: React.FC = () => {
     const ghostGroupRef = useRef<THREE.Group>(null);
 
     const catalogItem = FURNITURE_CATALOG.find(c => c.id === activeCatalogId);
+    const activePreset = ROOM_PRESETS.find(p => p.id === activePresetId) || null;
     const { camera, gl } = useThree();
 
     // Create raycaster and plane once
@@ -31,7 +54,7 @@ export const FurniturePlacer: React.FC = () => {
 
     // Global mouse tracking via DOM events
     useEffect(() => {
-        if (editorMode !== 'furniture' || !catalogItem) return;
+        if (editorMode !== 'furniture' || (!catalogItem && !activePreset)) return;
 
         const canvas = gl.domElement;
 
@@ -52,10 +75,11 @@ export const FurniturePlacer: React.FC = () => {
                 let newRot = userRotRef.current;
 
                 // Wall Snapping - snap to wall EDGE, not center
+                // (presets follow the cursor freely: the set anchors mid-room)
                 const snapDist = 0.3;
                 let snapped = false;
 
-                for (const wall of sceneWalls) {
+                for (const wall of (activePreset ? [] : sceneWalls)) {
                     const { a, b } = wall;
                     const wallThickness = wall.thickness || 0.15;
                     const halfThick = wallThickness / 2;
@@ -109,7 +133,7 @@ export const FurniturePlacer: React.FC = () => {
 
         canvas.addEventListener('mousemove', handleMouseMove);
         return () => canvas.removeEventListener('mousemove', handleMouseMove);
-    }, [editorMode, catalogItem, camera, gl.domElement, sceneWalls]);
+    }, [editorMode, catalogItem, activePreset, camera, gl.domElement, sceneWalls]);
 
     // R key rotation
     useEffect(() => {
@@ -140,20 +164,41 @@ export const FurniturePlacer: React.FC = () => {
     const handleClick = () => {
         if (!targetPosRef.current) return;
 
+        const { x, z } = targetPosRef.current;
+        const state = useStore.getState();
+
+        // Doors and windows must be cut INTO a wall (addOpening), not dropped as furniture
+        if (catalogItem.category === 'opening') {
+            const nearest = findNearestEdge(x, z, state.scene.edges, state.scene.nodes, 0.6);
+            if (nearest) {
+                const kind = catalogItem.id.includes('balcony')
+                    ? 'balcony_door'
+                    : catalogItem.id.includes('door')
+                        ? 'door'
+                        : 'window';
+                const t = Math.max(0.05, Math.min(0.95, nearest.t));
+                state.addOpening(nearest.edgeId, t, kind, catalogItem.dimensions.width);
+                state.setActiveCatalogId(null);
+                state.setEditorMode('view');
+            }
+            // No wall nearby - keep the ghost so the user can aim at a wall
+            return;
+        }
+
         const newId = uuidv4();
 
         addObject({
             id: newId,
             catalogId: activeCatalogId,
-            pos: { x: targetPosRef.current.x, y: 0, z: targetPosRef.current.z },
+            pos: { x, y: 0, z },
             rot: rotRef.current,
             scale: { x: 1, y: 1, z: 1 }
         });
 
         // Auto-select the placed object and switch to edit mode
-        useStore.getState().setActiveObjectId(newId);
-        useStore.getState().setActiveCatalogId(null);
-        useStore.getState().setEditorMode('view');
+        state.setActiveObjectId(newId);
+        state.setActiveCatalogId(null);
+        state.setEditorMode('view');
     };
 
     return (
